@@ -1,4 +1,231 @@
 
+# # # name: Security & Build Pipeline
+
+# # # on:
+# # #   workflow_dispatch:
+# # #   push:
+# # #     branches: [main]
+# # #   pull_request:
+# # #     branches: [main]
+
+# # # env:
+# # #   NODE_OPTIONS: --openssl-legacy-provider # Fix for OpenSSL error in Node 18
+
+# # # jobs:
+# # #   frontend:
+# # #     runs-on: ubuntu-latest
+# # #     steps:
+# # #       - uses: actions/checkout@v4.1.1
+# # #         with:
+# # #           repository: jai3747/MY-FRONTEND
+          
+# # #       - uses: actions/setup-node@v4.0.2
+# # #         with:
+# # #           node-version: '18'
+# # #           cache: 'npm'
+
+# # #       - name: Initialize npm if needed
+# # #         run: |
+# # #           if [ ! -f package.json ]; then
+# # #             npm init -y
+# # #           fi
+
+# # #       - name: Setup React configuration
+# # #         run: |
+# # #           if ! grep -q '"build"' package.json; then
+# # #             npm pkg set scripts.build="react-scripts build"
+# # #           fi
+          
+# # #           # Create minimal React config if missing
+# # #           if [ ! -f src/index.js ]; then
+# # #             mkdir -p src
+# # #             echo "import React from 'react';
+# # #             import ReactDOM from 'react-dom/client';
+# # #             import App from './App';
+            
+# # #             const root = ReactDOM.createRoot(document.getElementById('root'));
+# # #             root.render(<App />);" > src/index.js
+            
+# # #             echo "function App() { return <div>Hello World</div>; }
+# # #             export default App;" > src/App.js
+# # #           fi
+
+# # #       - name: Install Dependencies
+# # #         run: |
+# # #           # Install core dependencies
+# # #           npm install react@18 react-dom@18 react-scripts@5.0.1 --save
+          
+# # #           # Install security fixes
+# # #           npm install nth-check@2.0.1 postcss@8.4.31 serialize-javascript@6.0.2
+          
+# # #           # Install remaining dependencies
+# # #           npm ci || npm install
+          
+# # #           # Fix vulnerabilities
+# # #           npm audit fix --force || true
+
+# # #       - name: Build
+# # #         run: npm run build
+# # #         env:
+# # #           CI: false
+
+# # #       - name: Security Scan
+# # #         run: |
+# # #           # Install and run security scanners
+# # #           npm install -g snyk
+# # #           snyk test --all-projects || true
+          
+# # #           python3 -m pip install semgrep
+# # #           semgrep scan --config "p/typescript,p/react,p/javascript,p/owasp-top-ten" || true
+# # #         env:
+# # #           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+# # #           SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+
+# # #   backend:
+# # #     runs-on: ubuntu-latest
+# # #     steps:
+# # #       - uses: actions/checkout@v4.1.1
+# # #         with:
+# # #           repository: jai3747/MY-BACKEND
+          
+# # #       - uses: actions/setup-node@v4.0.2
+# # #         with:
+# # #           node-version: '18'
+# # #           cache: 'npm'
+
+# # #       - name: Initialize TypeScript Project
+# # #         run: |
+# # #           # Create package.json if needed
+# # #           if [ ! -f package.json ]; then
+# # #             npm init -y
+# # #           fi
+          
+# # #           # Install TypeScript and types
+# # #           npm install typescript @types/node @types/express --save-dev
+          
+# # #           # Create tsconfig.json if missing
+# # #           if [ ! -f tsconfig.json ]; then
+# # #             echo '{
+# # #               "compilerOptions": {
+# # #                 "target": "es2020",
+# # #                 "module": "commonjs",
+# # #                 "outDir": "./dist",
+# # #                 "rootDir": "./src",
+# # #                 "strict": true,
+# # #                 "esModuleInterop": true,
+# # #                 "skipLibCheck": true,
+# # #                 "forceConsistentCasingInFileNames": true
+# # #               },
+# # #               "include": ["src/**/*"],
+# # #               "exclude": ["node_modules"]
+# # #             }' > tsconfig.json
+# # #           fi
+          
+# # #           # Create src directory and main file if missing
+# # #           if [ ! -f src/index.ts ]; then
+# # #             mkdir -p src
+# # #             echo 'console.log("Backend running");' > src/index.ts
+# # #           fi
+          
+# # #           # Add build script
+# # #           npm pkg set scripts.build="tsc"
+
+# # #       - name: Install Dependencies
+# # #         run: |
+# # #           npm ci || npm install
+# # #           npm audit fix --force || true
+
+# # #       - name: Build
+# # #         run: npm run build
+
+# # #       - name: Security Scan
+# # #         run: |
+# # #           npm install -g snyk
+# # #           snyk test --all-projects || true
+# # #         env:
+# # #           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+
+# # #   trufflehog:
+# # #     runs-on: ubuntu-latest
+# # #     steps:
+# # #       - name: Checkout code
+# # #         uses: actions/checkout@v4.1.1
+# # #         with:
+# # #           fetch-depth: 0  # Required to get full history
+      
+# # #       # Optional: Configure git to use SSH
+# # #       - name: Configure Git credentials
+# # #         run: |
+# # #           git config --global credential.helper store
+# # #           git config --global --add safe.directory /github/workspace
+      
+# # #       # Run TruffleHog with proper configuration
+# # #       - name: TruffleHog OSS
+# # #         uses: trufflesecurity/trufflehog@v3.63.2
+# # #         with:
+# # #           path: .
+# # #           base: ${{ github.event.before }}
+# # #           head: ${{ github.sha }}
+# # #           extra_args: |
+# # #             --debug
+# # #             --only-verified
+# # #             --exclude-paths .trufflehog-exclude.txt
+# # #             --fail
+# # #         continue-on-error: true  # Don't fail the build, but report findings
+      
+# # #       # Create exclusion file for false positives
+# # #       - name: Setup TruffleHog exclusions
+# # #         run: |
+# # #           cat << EOF > .trufflehog-exclude.txt
+# # #           # Exclude test files
+# # #           test/
+# # #           tests/
+# # #           **/*test*.js
+# # #           **/*test*.ts
+          
+# # #           # Exclude documentation
+# # #           docs/
+# # #           *.md
+          
+# # #           # Exclude build artifacts
+# # #           dist/
+# # #           build/
+          
+# # #           # Exclude package files
+# # #           package-lock.json
+# # #           yarn.lock
+          
+# # #           # Exclude specific paths that may contain false positives
+# # #           **/example/**
+# # #           **/examples/**
+# # #           EOF
+      
+# # #       # Optional: Clean sensitive files
+# # #       - name: Clean sensitive files
+# # #         if: failure()  # Only run if TruffleHog found issues
+# # #         run: |
+# # #           echo "Cleaning up sensitive files..."
+# # #           # Add commands to remove or encrypt sensitive files
+# # #           # Example: git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch config/database.yml' HEAD
+      
+# # #       # Optional: Post scan summary
+# # #       - name: Post Scan Summary
+# # #         if: always()
+# # #         run: |
+# # #           echo "### TruffleHog Scan Summary" >> $GITHUB_STEP_SUMMARY
+# # #           echo "- Scan completed at: $(date)" >> $GITHUB_STEP_SUMMARY
+# # #           echo "- Repository: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+# # #           echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+# # #           if [ -f trufflehog-report.json ]; then
+# # #             echo "- Findings detected: Please review the scan results" >> $GITHUB_STEP_SUMMARY
+# # #           else
+# # #             echo "- No critical findings detected" >> $GITHUB_STEP_SUMMARY
+# # #           fi
+
+# # # permissions:
+# # #   contents: read
+# # #   security-events: write
 # # name: Security & Build Pipeline
 
 # # on:
@@ -9,223 +236,100 @@
 # #     branches: [main]
 
 # # env:
-# #   NODE_OPTIONS: --openssl-legacy-provider # Fix for OpenSSL error in Node 18
+# #   NODE_OPTIONS: --openssl-legacy-provider
 
 # # jobs:
-# #   frontend:
+# #   security-scan:
 # #     runs-on: ubuntu-latest
 # #     steps:
 # #       - uses: actions/checkout@v4.1.1
-# #         with:
-# #           repository: jai3747/MY-FRONTEND
-          
-# #       - uses: actions/setup-node@v4.0.2
-# #         with:
-# #           node-version: '18'
-# #           cache: 'npm'
-
-# #       - name: Initialize npm if needed
+# #       - name: Run Security Scans
 # #         run: |
-# #           if [ ! -f package.json ]; then
-# #             npm init -y
-# #           fi
-
-# #       - name: Setup React configuration
-# #         run: |
-# #           if ! grep -q '"build"' package.json; then
-# #             npm pkg set scripts.build="react-scripts build"
-# #           fi
-          
-# #           # Create minimal React config if missing
-# #           if [ ! -f src/index.js ]; then
-# #             mkdir -p src
-# #             echo "import React from 'react';
-# #             import ReactDOM from 'react-dom/client';
-# #             import App from './App';
-            
-# #             const root = ReactDOM.createRoot(document.getElementById('root'));
-# #             root.render(<App />);" > src/index.js
-            
-# #             echo "function App() { return <div>Hello World</div>; }
-# #             export default App;" > src/App.js
-# #           fi
-
-# #       - name: Install Dependencies
-# #         run: |
-# #           # Install core dependencies
-# #           npm install react@18 react-dom@18 react-scripts@5.0.1 --save
-          
-# #           # Install security fixes
-# #           npm install nth-check@2.0.1 postcss@8.4.31 serialize-javascript@6.0.2
-          
-# #           # Install remaining dependencies
-# #           npm ci || npm install
-          
-# #           # Fix vulnerabilities
-# #           npm audit fix --force || true
-
-# #       - name: Build
-# #         run: npm run build
-# #         env:
-# #           CI: false
-
-# #       - name: Security Scan
-# #         run: |
-# #           # Install and run security scanners
+# #           # Install scanners
 # #           npm install -g snyk
-# #           snyk test --all-projects || true
-          
 # #           python3 -m pip install semgrep
-# #           semgrep scan --config "p/typescript,p/react,p/javascript,p/owasp-top-ten" || true
+          
+# #           # Run scans and save reports
+# #           snyk test --all-projects --json > snyk-report.json || true
+# #           semgrep scan --config "p/typescript,p/react,p/javascript,p/owasp-top-ten" --json > semgrep-report.json || true
+          
+# #           # Generate summary
+# #           echo "### Security Scan Results" >> $GITHUB_STEP_SUMMARY
+# #           echo "#### Snyk Findings" >> $GITHUB_STEP_SUMMARY
+# #           jq -r '.vulnerabilities | length' snyk-report.json >> $GITHUB_STEP_SUMMARY
+# #           echo "#### Semgrep Findings" >> $GITHUB_STEP_SUMMARY
+# #           jq -r '.results | length' semgrep-report.json >> $GITHUB_STEP_SUMMARY
 # #         env:
 # #           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # #           SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
-# #   backend:
+# #   trufflehog:
 # #     runs-on: ubuntu-latest
 # #     steps:
 # #       - uses: actions/checkout@v4.1.1
 # #         with:
-# #           repository: jai3747/MY-BACKEND
-          
-# #       - uses: actions/setup-node@v4.0.2
-# #         with:
-# #           node-version: '18'
-# #           cache: 'npm'
-
-# #       - name: Initialize TypeScript Project
-# #         run: |
-# #           # Create package.json if needed
-# #           if [ ! -f package.json ]; then
-# #             npm init -y
-# #           fi
-          
-# #           # Install TypeScript and types
-# #           npm install typescript @types/node @types/express --save-dev
-          
-# #           # Create tsconfig.json if missing
-# #           if [ ! -f tsconfig.json ]; then
-# #             echo '{
-# #               "compilerOptions": {
-# #                 "target": "es2020",
-# #                 "module": "commonjs",
-# #                 "outDir": "./dist",
-# #                 "rootDir": "./src",
-# #                 "strict": true,
-# #                 "esModuleInterop": true,
-# #                 "skipLibCheck": true,
-# #                 "forceConsistentCasingInFileNames": true
-# #               },
-# #               "include": ["src/**/*"],
-# #               "exclude": ["node_modules"]
-# #             }' > tsconfig.json
-# #           fi
-          
-# #           # Create src directory and main file if missing
-# #           if [ ! -f src/index.ts ]; then
-# #             mkdir -p src
-# #             echo 'console.log("Backend running");' > src/index.ts
-# #           fi
-          
-# #           # Add build script
-# #           npm pkg set scripts.build="tsc"
-
-# #       - name: Install Dependencies
-# #         run: |
-# #           npm ci || npm install
-# #           npm audit fix --force || true
-
-# #       - name: Build
-# #         run: npm run build
-
-# #       - name: Security Scan
-# #         run: |
-# #           npm install -g snyk
-# #           snyk test --all-projects || true
-# #         env:
-# #           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-
-# #   trufflehog:
-# #     runs-on: ubuntu-latest
-# #     steps:
-# #       - name: Checkout code
-# #         uses: actions/checkout@v4.1.1
-# #         with:
-# #           fetch-depth: 0  # Required to get full history
-      
-# #       # Optional: Configure git to use SSH
-# #       - name: Configure Git credentials
-# #         run: |
-# #           git config --global credential.helper store
-# #           git config --global --add safe.directory /github/workspace
-      
-# #       # Run TruffleHog with proper configuration
-# #       - name: TruffleHog OSS
-# #         uses: trufflesecurity/trufflehog@v3.63.2
+# #           fetch-depth: 0
+# #       - uses: trufflesecurity/trufflehog@v3.63.2
 # #         with:
 # #           path: .
 # #           base: ${{ github.event.before }}
 # #           head: ${{ github.sha }}
-# #           extra_args: |
-# #             --debug
-# #             --only-verified
-# #             --exclude-paths .trufflehog-exclude.txt
-# #             --fail
-# #         continue-on-error: true  # Don't fail the build, but report findings
-      
-# #       # Create exclusion file for false positives
-# #       - name: Setup TruffleHog exclusions
+# #           extra_args: --only-verified --json > trufflehog-report.json
+# #         continue-on-error: true
+# #       - name: Process TruffleHog Results
 # #         run: |
-# #           cat << EOF > .trufflehog-exclude.txt
-# #           # Exclude test files
-# #           test/
-# #           tests/
-# #           **/*test*.js
-# #           **/*test*.ts
-          
-# #           # Exclude documentation
-# #           docs/
-# #           *.md
-          
-# #           # Exclude build artifacts
-# #           dist/
-# #           build/
-          
-# #           # Exclude package files
-# #           package-lock.json
-# #           yarn.lock
-          
-# #           # Exclude specific paths that may contain false positives
-# #           **/example/**
-# #           **/examples/**
-# #           EOF
-      
-# #       # Optional: Clean sensitive files
-# #       - name: Clean sensitive files
-# #         if: failure()  # Only run if TruffleHog found issues
-# #         run: |
-# #           echo "Cleaning up sensitive files..."
-# #           # Add commands to remove or encrypt sensitive files
-# #           # Example: git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch config/database.yml' HEAD
-      
-# #       # Optional: Post scan summary
-# #       - name: Post Scan Summary
-# #         if: always()
-# #         run: |
-# #           echo "### TruffleHog Scan Summary" >> $GITHUB_STEP_SUMMARY
-# #           echo "- Scan completed at: $(date)" >> $GITHUB_STEP_SUMMARY
-# #           echo "- Repository: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
-# #           echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-# #           if [ -f trufflehog-report.json ]; then
-# #             echo "- Findings detected: Please review the scan results" >> $GITHUB_STEP_SUMMARY
-# #           else
-# #             echo "- No critical findings detected" >> $GITHUB_STEP_SUMMARY
-# #           fi
+# #           echo "### Secret Scanning Results" >> $GITHUB_STEP_SUMMARY
+# #           jq -r 'length' trufflehog-report.json >> $GITHUB_STEP_SUMMARY
 
-# # permissions:
-# #   contents: read
-# #   security-events: write
+# #   frontend-build:
+# #     runs-on: ubuntu-latest
+# #     needs: security-scan
+# #     steps:
+# #       - uses: actions/checkout@v4.1.1
+# #         with:
+# #           repository: jai3747/MY-FRONTEND
+# #       - uses: actions/setup-node@v4.0.2
+# #         with:
+# #           node-version: '18'
+# #           cache: 'npm'
+# #       - name: Build Frontend
+# #         run: |
+# #           npm install
+# #           npm run build
+# #         env:
+# #           CI: false
+
+# #   backend-build:
+# #     runs-on: ubuntu-latest
+# #     needs: security-scan
+# #     steps:
+# #       - uses: actions/checkout@v4.1.1
+# #         with:
+# #           repository: jai3747/MY-BACKEND
+# #       - uses: actions/setup-node@v4.0.2
+# #         with:
+# #           node-version: '18'
+# #           cache: 'npm'
+# #       - name: Build Backend
+# #         run: |
+# #           npm install typescript @types/node @types/express --save-dev
+# #           npm install
+# #           npm run build
+
+# #   report:
+# #     needs: [security-scan, trufflehog, frontend-build, backend-build]
+# #     runs-on: ubuntu-latest
+# #     if: always()
+# #     steps:
+# #       - name: Generate Final Report
+# #         run: |
+# #           echo "## Pipeline Execution Summary" >> $GITHUB_STEP_SUMMARY
+# #           echo "### Build Status" >> $GITHUB_STEP_SUMMARY
+# #           echo "- Frontend: ${{ needs.frontend-build.result }}" >> $GITHUB_STEP_SUMMARY
+# #           echo "- Backend: ${{ needs.backend-build.result }}" >> $GITHUB_STEP_SUMMARY
+# #           echo "### Security Status" >> $GITHUB_STEP_SUMMARY
+# #           echo "- Security Scan: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+# #           echo "- Secret Scan: ${{ needs.trufflehog.result }}" >> $GITHUB_STEP_SUMMARY
 # name: Security & Build Pipeline
 
 # on:
@@ -239,51 +343,65 @@
 #   NODE_OPTIONS: --openssl-legacy-provider
 
 # jobs:
-#   security-scan:
+#   frontend-security:
 #     runs-on: ubuntu-latest
 #     steps:
 #       - uses: actions/checkout@v4.1.1
-#       - name: Run Security Scans
+#         with:
+#           repository: jai3747/MY-FRONTEND
+#       - uses: actions/setup-node@v4.0.2
+#         with:
+#           node-version: '18'
+#           cache: 'npm'
+      
+#       - name: SAC (Snyk) Scan
 #         run: |
-#           # Install scanners
+#           npm install
 #           npm install -g snyk
-#           python3 -m pip install semgrep
-          
-#           # Run scans and save reports
-#           snyk test --all-projects --json > snyk-report.json || true
-#           semgrep scan --config "p/typescript,p/react,p/javascript,p/owasp-top-ten" --json > semgrep-report.json || true
-          
-#           # Generate summary
-#           echo "### Security Scan Results" >> $GITHUB_STEP_SUMMARY
-#           echo "#### Snyk Findings" >> $GITHUB_STEP_SUMMARY
-#           jq -r '.vulnerabilities | length' snyk-report.json >> $GITHUB_STEP_SUMMARY
-#           echo "#### Semgrep Findings" >> $GITHUB_STEP_SUMMARY
-#           jq -r '.results | length' semgrep-report.json >> $GITHUB_STEP_SUMMARY
+#           snyk test --json > frontend-sac.json || true
+#           echo "### Frontend SAC Results" >> $GITHUB_STEP_SUMMARY
+#           jq -r '.vulnerabilities | length' frontend-sac.json >> $GITHUB_STEP_SUMMARY || echo "0"
 #         env:
 #           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-#           SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
-#   trufflehog:
+#       - name: Frontend TruffleHog
+#         run: |
+#           docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
+#             filesystem /pwd --json > frontend-secrets.json || true
+#           echo "### Frontend Secrets" >> $GITHUB_STEP_SUMMARY
+#           jq -r 'length' frontend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "0"
+
+#   backend-security:
 #     runs-on: ubuntu-latest
 #     steps:
 #       - uses: actions/checkout@v4.1.1
 #         with:
-#           fetch-depth: 0
-#       - uses: trufflesecurity/trufflehog@v3.63.2
+#           repository: jai3747/MY-BACKEND
+#       - uses: actions/setup-node@v4.0.2
 #         with:
-#           path: .
-#           base: ${{ github.event.before }}
-#           head: ${{ github.sha }}
-#           extra_args: --only-verified --json > trufflehog-report.json
-#         continue-on-error: true
-#       - name: Process TruffleHog Results
+#           node-version: '18'
+#           cache: 'npm'
+      
+#       - name: SAC (Snyk) Scan
 #         run: |
-#           echo "### Secret Scanning Results" >> $GITHUB_STEP_SUMMARY
-#           jq -r 'length' trufflehog-report.json >> $GITHUB_STEP_SUMMARY
+#           npm install
+#           npm install -g snyk
+#           snyk test --json > backend-sac.json || true
+#           echo "### Backend SAC Results" >> $GITHUB_STEP_SUMMARY
+#           jq -r '.vulnerabilities | length' backend-sac.json >> $GITHUB_STEP_SUMMARY || echo "0"
+#         env:
+#           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+#       - name: Backend TruffleHog
+#         run: |
+#           docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
+#             filesystem /pwd --json > backend-secrets.json || true
+#           echo "### Backend Secrets" >> $GITHUB_STEP_SUMMARY
+#           jq -r 'length' backend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "0"
 
 #   frontend-build:
+#     needs: frontend-security
 #     runs-on: ubuntu-latest
-#     needs: security-scan
 #     steps:
 #       - uses: actions/checkout@v4.1.1
 #         with:
@@ -294,14 +412,18 @@
 #           cache: 'npm'
 #       - name: Build Frontend
 #         run: |
+#           npm install react@18 react-dom@18 react-scripts@5.0.1 --save
 #           npm install
+#           if ! grep -q '"build"' package.json; then
+#             npm pkg set scripts.build="react-scripts build"
+#           fi
 #           npm run build
 #         env:
 #           CI: false
 
 #   backend-build:
+#     needs: backend-security
 #     runs-on: ubuntu-latest
-#     needs: security-scan
 #     steps:
 #       - uses: actions/checkout@v4.1.1
 #         with:
@@ -314,22 +436,32 @@
 #         run: |
 #           npm install typescript @types/node @types/express --save-dev
 #           npm install
+#           if ! grep -q '"build"' package.json; then
+#             npm pkg set scripts.build="tsc"
+#           fi
 #           npm run build
 
 #   report:
-#     needs: [security-scan, trufflehog, frontend-build, backend-build]
+#     needs: [frontend-security, backend-security, frontend-build, backend-build]
 #     runs-on: ubuntu-latest
 #     if: always()
 #     steps:
 #       - name: Generate Final Report
 #         run: |
-#           echo "## Pipeline Execution Summary" >> $GITHUB_STEP_SUMMARY
+#           echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+#           echo "### Frontend" >> $GITHUB_STEP_SUMMARY
+#           echo "- SAC (Snyk): ${{ needs.frontend-security.result }}" >> $GITHUB_STEP_SUMMARY
+#           echo "- TruffleHog: ${{ needs.frontend-security.result }}" >> $GITHUB_STEP_SUMMARY
+#           echo "### Backend" >> $GITHUB_STEP_SUMMARY
+#           echo "- SAC (Snyk): ${{ needs.backend-security.result }}" >> $GITHUB_STEP_SUMMARY
+#           echo "- TruffleHog: ${{ needs.backend-security.result }}" >> $GITHUB_STEP_SUMMARY
 #           echo "### Build Status" >> $GITHUB_STEP_SUMMARY
 #           echo "- Frontend: ${{ needs.frontend-build.result }}" >> $GITHUB_STEP_SUMMARY
 #           echo "- Backend: ${{ needs.backend-build.result }}" >> $GITHUB_STEP_SUMMARY
-#           echo "### Security Status" >> $GITHUB_STEP_SUMMARY
-#           echo "- Security Scan: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
-#           echo "- Secret Scan: ${{ needs.trufflehog.result }}" >> $GITHUB_STEP_SUMMARY
+
+# permissions:
+#   contents: read
+#   security-events: write
 name: Security & Build Pipeline
 
 on:
@@ -359,8 +491,10 @@ jobs:
           npm install
           npm install -g snyk
           snyk test --json > frontend-sac.json || true
-          echo "### Frontend SAC Results" >> $GITHUB_STEP_SUMMARY
-          jq -r '.vulnerabilities | length' frontend-sac.json >> $GITHUB_STEP_SUMMARY || echo "0"
+          echo "### Frontend Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          jq -r '.vulnerabilities[] | "- " + .title + " (Severity: " + .severity + ")"' frontend-sac.json >> $GITHUB_STEP_SUMMARY || echo "No vulnerabilities found"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
@@ -368,8 +502,10 @@ jobs:
         run: |
           docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
             filesystem /pwd --json > frontend-secrets.json || true
-          echo "### Frontend Secrets" >> $GITHUB_STEP_SUMMARY
-          jq -r 'length' frontend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "0"
+          echo "### Frontend Secrets Found" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          jq -r '.[] | "- Found in: " + .file + " (Type: " + .type + ")"' frontend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "No secrets found"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   backend-security:
     runs-on: ubuntu-latest
@@ -387,8 +523,10 @@ jobs:
           npm install
           npm install -g snyk
           snyk test --json > backend-sac.json || true
-          echo "### Backend SAC Results" >> $GITHUB_STEP_SUMMARY
-          jq -r '.vulnerabilities | length' backend-sac.json >> $GITHUB_STEP_SUMMARY || echo "0"
+          echo "### Backend Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          jq -r '.vulnerabilities[] | "- " + .title + " (Severity: " + .severity + ")"' backend-sac.json >> $GITHUB_STEP_SUMMARY || echo "No vulnerabilities found"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
@@ -396,8 +534,10 @@ jobs:
         run: |
           docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
             filesystem /pwd --json > backend-secrets.json || true
-          echo "### Backend Secrets" >> $GITHUB_STEP_SUMMARY
-          jq -r 'length' backend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "0"
+          echo "### Backend Secrets Found" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          jq -r '.[] | "- Found in: " + .file + " (Type: " + .type + ")"' backend-secrets.json >> $GITHUB_STEP_SUMMARY || echo "No secrets found"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   frontend-build:
     needs: frontend-security
@@ -432,13 +572,35 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
+      - name: Initialize TypeScript
+        run: |
+          npm init -y
+          npm install typescript @types/node @types/express --save-dev
+          npx tsc --init
+      - name: Create TypeScript Config
+        run: |
+          echo '{
+            "compilerOptions": {
+              "target": "es2020",
+              "module": "commonjs",
+              "outDir": "./dist",
+              "rootDir": "./src",
+              "strict": true,
+              "esModuleInterop": true
+            },
+            "include": ["src/**/*"],
+            "exclude": ["node_modules"]
+          }' > tsconfig.json
+      - name: Ensure Source Directory
+        run: |
+          mkdir -p src
+          if [ ! -f src/index.ts ]; then
+            echo 'console.log("Backend running");' > src/index.ts
+          fi
       - name: Build Backend
         run: |
-          npm install typescript @types/node @types/express --save-dev
+          npm pkg set scripts.build="tsc"
           npm install
-          if ! grep -q '"build"' package.json; then
-            npm pkg set scripts.build="tsc"
-          fi
           npm run build
 
   report:
@@ -448,21 +610,20 @@ jobs:
     steps:
       - name: Generate Final Report
         run: |
-          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "# Pipeline Security Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend Build: ${{ needs.frontend-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend Build: ${{ needs.backend-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Security Summary" >> $GITHUB_STEP_SUMMARY
           echo "### Frontend" >> $GITHUB_STEP_SUMMARY
-          echo "- SAC (Snyk): ${{ needs.frontend-security.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- TruffleHog: ${{ needs.frontend-security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scan Status: ${{ needs.frontend-security.result }}" >> $GITHUB_STEP_SUMMARY
           echo "### Backend" >> $GITHUB_STEP_SUMMARY
-          echo "- SAC (Snyk): ${{ needs.backend-security.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- TruffleHog: ${{ needs.backend-security.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "### Build Status" >> $GITHUB_STEP_SUMMARY
-          echo "- Frontend: ${{ needs.frontend-build.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Backend: ${{ needs.backend-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scan Status: ${{ needs.backend-security.result }}" >> $GITHUB_STEP_SUMMARY
 
 permissions:
   contents: read
   security-events: write
 
-# permissions:
-#   contents: read
-#   security-events: write
+# # permissions:
+# #   contents: read
+# #   security-events: write
