@@ -5,23 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   security-checks:
     runs-on: ubuntu-latest
     steps:
     # Pin GitHub Actions to full commit SHA for security
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
+    - uses: actions/checkout@b4ffde65f46336ab88eb9de9c594898c59d0c391 # v4.1.1
+    
     # Pinned Node.js setup with specific version
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@60edb5dd545a775178f9ca4c46b86c5203c69d00 # v4.0.2
       with:
         node-version: '18'
         cache: 'npm'
-
+    
     # Dependency Installation and Security
     - name: Install and Audit Dependencies
       run: |
@@ -29,13 +26,17 @@ jobs:
         npm audit --audit-level=high
         npm install npm-force-resolutions
         npx npm-force-resolutions
-
+        
+        # Pin exact dependency versions in package.json
+        npm install npm-version-lock
+        npx npm-version-lock
+    
     # Secret Scanning
     - name: Trufflehog Secret Scanning
       run: |
         pip install trufflehog3
         trufflehog3 . --output trufflehog-results.json || true
-
+    
     # Vulnerability Scanning
     - name: Snyk Vulnerability Scan
       env:
@@ -43,10 +44,10 @@ jobs:
       run: |
         npm install -g snyk
         snyk test --all-projects --json-file-output=snyk-report.json || true
-
+    
     # Code Analysis with Semgrep
     - name: Semgrep Code Analysis
-      uses: semgrep/semgrep-action@v1
+      uses: semgrep/semgrep-action@b0f39e0f9277d90b2ee4d95390a3d29e1c4a9b52 # Pinned to specific commit SHA
       with:
         config: >-
           r/all
@@ -54,13 +55,14 @@ jobs:
           r/nodejs
           r/security-audit
         publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
-
+    
     # Docker Image Security
     - name: Docker Build and Scan
       run: |
         docker build -t my-backend .
-        docker scan my-backend --json > docker-scan-results.json || true
-
+        docker scout quickview
+        docker scout cves my-backend --output cves.txt
+    
     # Security Configuration Fixes
     - name: Configure Security Enhancements
       run: |
@@ -69,33 +71,33 @@ jobs:
         docker pull $docker_base_image
         image_sha=$(docker inspect --format='{{index .RepoDigests 0}}' $docker_base_image | cut -d@ -f2)
         sed -i "s|FROM node:16-alpine|FROM node:16-alpine@sha256:$image_sha|" Dockerfile
-
+        
         # Kubernetes Security Context Fixes
-        sed -i '/name: mongodb/,/^$/c\- name: mongodb\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
-        sed -i '/name: backend/,/^$/c\- name: backend\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
-        sed -i '/name: frontend/,/^$/c\- name: frontend\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
-
+        for service in mongodb backend frontend; do
+          sed -i "/$service:/,/^$/c\- name: $service\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true" DEPLOYEMENT/K8/k8.yaml
+        done
+        
         # Docker Compose Security Improvements
         sed -i '/mongodb:/,/^$/c\mongodb:\n  security_opt:\n    - no-new-privileges:true\n  read_only: true' DEPLOYEMENT/DOCKER/docker-compose.yaml
-
+    
     # CSRF Protection
     - name: Implement CSRF Protection
       run: |
         npm install csurf
         # Add CSRF middleware to server.js
         sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
-
+    
     # Upload Security Scan Results
     - name: Upload Security Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@5d5d22a31266ced268874388b5e2d7b75046b207 # v4.3.1
       with:
         name: security-scan-results
         path: |
           trufflehog-results.json
           snyk-report.json
-          docker-scan-results.json
+          cves.txt
           semgrep-results.json
-
+    
     # Fail workflow if critical vulnerabilities are found
     - name: Check Vulnerability Severity
       run: |
