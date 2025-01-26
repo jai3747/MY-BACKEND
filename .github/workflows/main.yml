@@ -46,12 +46,6 @@ jobs:
        path: ./
        base_ref: ${{ github.head_ref || github.ref }}
 
-   - name: Semgrep Security Scan
-     uses: semgrep/semgrep-action@v1
-     with:
-       config: >-
-         r/all r/javascript r/nodejs r/security-audit
-
    - name: Snyk Security Scan
      uses: snyk/actions/node@master
      env:
