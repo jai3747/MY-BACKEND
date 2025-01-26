@@ -27,7 +27,6 @@ jobs:
 
     - name: Pin Dependencies
       run: |
-        # Update package.json to use exact versions
         npm install npm-force-resolutions
         npx npm-force-resolutions
 
@@ -60,14 +59,12 @@ jobs:
 
     - name: Configure Security Fixes
       run: |
-        # Implement automated fixes based on Semgrep findings
         sed -i 's/FROM node:16-alpine/FROM node:16-alpine@sha256:<specific-hash>/' Dockerfile
         sed -i 's/allowPrivilegeEscalation: true/allowPrivilegeEscalation: false/' k8.yaml
         
     - name: CSRF Protection
       run: |
         npm install csurf
-        # Add CSRF middleware configuration to server.js
 
     - name: Upload Security Results
       uses: actions/upload-artifact@v4
@@ -78,11 +75,3 @@ jobs:
           snyk-report.json
           docker-scan-results.json
           semgrep-results.json
-
-    - name: Slack Notification
-      if: failure()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: ${{ job.status }}
-        text: Security scan detected vulnerabilities in the backend
-        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
