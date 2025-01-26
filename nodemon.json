@@ -1,0 +1,7 @@
+// nodemon.json
+{
+  "watch": ["."],
+  "ext": ".ts,.js",
+  "ignore": ["node_modules", "dist"],
+  "exec": "ts-node ./server.ts"
+}
