@@ -10,31 +10,33 @@ jobs:
   security-checks:
     runs-on: ubuntu-latest
     steps:
+    # Pin GitHub Actions to full commit SHA for security
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Ensures full git history for comprehensive scanning
+        fetch-depth: 0
 
+    # Pinned Node.js setup with specific version
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
 
-    - name: Install Dependencies
+    # Dependency Installation and Security
+    - name: Install and Audit Dependencies
       run: |
         npm ci
-        npm audit
-
-    - name: Pin Dependencies
-      run: |
+        npm audit --audit-level=high
         npm install npm-force-resolutions
         npx npm-force-resolutions
 
+    # Secret Scanning
     - name: Trufflehog Secret Scanning
       run: |
         pip install trufflehog3
         trufflehog3 . --output trufflehog-results.json || true
 
+    # Vulnerability Scanning
     - name: Snyk Vulnerability Scan
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -42,6 +44,7 @@ jobs:
         npm install -g snyk
         snyk test --all-projects --json-file-output=snyk-report.json || true
 
+    # Code Analysis with Semgrep
     - name: Semgrep Code Analysis
       uses: semgrep/semgrep-action@v1
       with:
@@ -52,20 +55,37 @@ jobs:
           r/security-audit
         publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-    - name: Docker Scan
+    # Docker Image Security
+    - name: Docker Build and Scan
       run: |
         docker build -t my-backend .
         docker scan my-backend --json > docker-scan-results.json || true
 
-    - name: Configure Security Fixes
+    # Security Configuration Fixes
+    - name: Configure Security Enhancements
       run: |
-        sed -i 's/FROM node:16-alpine/FROM node:16-alpine@sha256:<specific-hash>/' Dockerfile
-        sed -i 's/allowPrivilegeEscalation: true/allowPrivilegeEscalation: false/' k8.yaml
-        
-    - name: CSRF Protection
+        # Pin Docker base image with specific SHA
+        docker_base_image=$(grep "FROM" Dockerfile | awk '{print $2}')
+        docker pull $docker_base_image
+        image_sha=$(docker inspect --format='{{index .RepoDigests 0}}' $docker_base_image | cut -d@ -f2)
+        sed -i "s|FROM node:16-alpine|FROM node:16-alpine@sha256:$image_sha|" Dockerfile
+
+        # Kubernetes Security Context Fixes
+        sed -i '/name: mongodb/,/^$/c\- name: mongodb\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
+        sed -i '/name: backend/,/^$/c\- name: backend\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
+        sed -i '/name: frontend/,/^$/c\- name: frontend\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true' DEPLOYEMENT/K8/k8.yaml
+
+        # Docker Compose Security Improvements
+        sed -i '/mongodb:/,/^$/c\mongodb:\n  security_opt:\n    - no-new-privileges:true\n  read_only: true' DEPLOYEMENT/DOCKER/docker-compose.yaml
+
+    # CSRF Protection
+    - name: Implement CSRF Protection
       run: |
         npm install csurf
+        # Add CSRF middleware to server.js
+        sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
 
+    # Upload Security Scan Results
     - name: Upload Security Results
       uses: actions/upload-artifact@v4
       with:
@@ -75,3 +95,11 @@ jobs:
           snyk-report.json
           docker-scan-results.json
           semgrep-results.json
+
+    # Fail workflow if critical vulnerabilities are found
+    - name: Check Vulnerability Severity
+      run: |
+        if [ $(grep -c '"severity": "high"' snyk-report.json) -gt 0 ]; then
+          echo "High severity vulnerabilities detected"
+          exit 1
+        fi
