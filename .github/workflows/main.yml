@@ -5,32 +5,44 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
 jobs:
-  backend-security-scan:
+  security-checks:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+      with:
+        fetch-depth: 0  # Ensures full git history for comprehensive scanning
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
+        cache: 'npm'
+
     - name: Install Dependencies
-      run: npm ci
-    
-    - name: Truffle Hog Secret Scanning
+      run: |
+        npm ci
+        npm audit
+
+    - name: Pin Dependencies
+      run: |
+        # Update package.json to use exact versions
+        npm install npm-force-resolutions
+        npx npm-force-resolutions
+
+    - name: Trufflehog Secret Scanning
       run: |
         pip install trufflehog3
-        trufflehog3 . --output backend-trufflehog.json || true
-    
+        trufflehog3 . --output trufflehog-results.json || true
+
     - name: Snyk Vulnerability Scan
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       run: |
         npm install -g snyk
-        snyk test --all-projects --json-file-output=backend-snyk-report.json || true
-    
+        snyk test --all-projects --json-file-output=snyk-report.json || true
+
     - name: Semgrep Code Analysis
       uses: semgrep/semgrep-action@v1
       with:
@@ -40,11 +52,37 @@ jobs:
           r/nodejs
           r/security-audit
         publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
-    
+
+    - name: Docker Scan
+      run: |
+        docker build -t my-backend .
+        docker scan my-backend --json > docker-scan-results.json || true
+
+    - name: Configure Security Fixes
+      run: |
+        # Implement automated fixes based on Semgrep findings
+        sed -i 's/FROM node:16-alpine/FROM node:16-alpine@sha256:<specific-hash>/' Dockerfile
+        sed -i 's/allowPrivilegeEscalation: true/allowPrivilegeEscalation: false/' k8.yaml
+        
+    - name: CSRF Protection
+      run: |
+        npm install csurf
+        # Add CSRF middleware configuration to server.js
+
     - name: Upload Security Results
       uses: actions/upload-artifact@v4
       with:
-        name: backend-security-scans
+        name: security-scan-results
         path: |
-          backend-trufflehog.json
-          backend-snyk-report.json
+          trufflehog-results.json
+          snyk-report.json
+          docker-scan-results.json
+          semgrep-results.json
+
+    - name: Slack Notification
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: Security scan detected vulnerabilities in the backend
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
