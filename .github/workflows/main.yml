@@ -1,44 +1,46 @@
 name: MY_BACKEND Security Scan
-
 on:
   workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   backend-security-scan:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-
+    
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-
+    
     - name: Install Dependencies
       run: npm ci
-
+    
     - name: Truffle Hog Secret Scanning
       run: |
         pip install trufflehog3
         trufflehog3 . --output backend-trufflehog.json || true
-
+    
     - name: Snyk Vulnerability Scan
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       run: |
         npm install -g snyk
         snyk test --all-projects --json-file-output=backend-snyk-report.json || true
-
+    
     - name: Semgrep Code Analysis
-      uses: returntocorp/semgrep-action@v1
+      uses: semgrep/semgrep-action@v1
       with:
-        config: auto
-        output: backend-semgrep-results.json
-
+        config: >-
+          r/all
+          r/javascript
+          r/nodejs
+          r/security-audit
+        publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+    
     - name: Upload Security Results
       uses: actions/upload-artifact@v4
       with:
@@ -46,4 +48,3 @@ jobs:
         path: |
           backend-trufflehog.json
           backend-snyk-report.json
-          backend-semgrep-results.json
