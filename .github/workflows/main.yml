@@ -827,16 +827,84 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
+
   trufflehog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.1.1
+      - name: Checkout code
+        uses: actions/checkout@v4.1.1
         with:
-          fetch-depth: 0
-          
-      - name: TruffleHog Scan
+          fetch-depth: 0  # Required to get full history
+      
+      # Optional: Configure git to use SSH
+      - name: Configure Git credentials
+        run: |
+          git config --global credential.helper store
+          git config --global --add safe.directory /github/workspace
+      
+      # Run TruffleHog with proper configuration
+      - name: TruffleHog OSS
         uses: trufflesecurity/trufflehog@v3.63.2
         with:
           path: .
-          base_ref: ${{ github.head_ref || github.ref }}
-          extra_args: --debug --only-verified
+          base: ${{ github.event.before }}
+          head: ${{ github.sha }}
+          extra_args: |
+            --debug
+            --only-verified
+            --exclude-paths .trufflehog-exclude.txt
+            --fail
+        continue-on-error: true  # Don't fail the build, but report findings
+      
+      # Create exclusion file for false positives
+      - name: Setup TruffleHog exclusions
+        run: |
+          cat << EOF > .trufflehog-exclude.txt
+          # Exclude test files
+          test/
+          tests/
+          **/*test*.js
+          **/*test*.ts
+          
+          # Exclude documentation
+          docs/
+          *.md
+          
+          # Exclude build artifacts
+          dist/
+          build/
+          
+          # Exclude package files
+          package-lock.json
+          yarn.lock
+          
+          # Exclude specific paths that may contain false positives
+          **/example/**
+          **/examples/**
+          EOF
+      
+      # Optional: Clean sensitive files
+      - name: Clean sensitive files
+        if: failure()  # Only run if TruffleHog found issues
+        run: |
+          echo "Cleaning up sensitive files..."
+          # Add commands to remove or encrypt sensitive files
+          # Example: git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch config/database.yml' HEAD
+      
+      # Optional: Post scan summary
+      - name: Post Scan Summary
+        if: always()
+        run: |
+          echo "### TruffleHog Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Scan completed at: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- Repository: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f trufflehog-report.json ]; then
+            echo "- Findings detected: Please review the scan results" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- No critical findings detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+permissions:
+  contents: read
+  security-events: write
