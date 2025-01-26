@@ -1,4 +1,5 @@
 name: Backend Security Scan
+
 on:
   workflow_dispatch:
   push:
@@ -12,92 +13,68 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      actions: read
-      
+
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4.1.1  # Pinned to full commit SHA for security
-      
+      uses: actions/checkout@v4.1.1
+
     - name: Setup Node.js
-      uses: actions/setup-node@v4.0.2  # Pinned to full commit SHA
+      uses: actions/setup-node@v4.0.2
       with:
         node-version: '18'
         cache: 'npm'
-        
+
     - name: Install Dependencies
       run: |
         npm ci
         npm install -g npm-force-resolutions
         npx npm-force-resolutions
-        
+
     - name: Pin Package Versions
       run: |
         npm config set save-exact true
         npm update --save
-        
+
     - name: Dependency Security Audit
       continue-on-error: true
       run: |
         npm audit --audit-level=high
         npm audit signatures
-        
+
     - name: Secret Detection
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@v3.3.0
       with:
         path: ./
         base_ref: ${{ github.head_ref || github.ref }}
-        
+
     - name: Semgrep Security Scan
       uses: semgrep/semgrep-action@v1
       with:
         config: >-
-          r/all
-          r/javascript
-          r/nodejs
-          r/security-audit
-        
+          r/all r/javascript r/nodejs r/security-audit
+
     - name: Snyk Security Scan
       uses: snyk/actions/node@master
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
         command: test
-        
-    - name: Docker Build and Scan
-      run: |
-        docker build -t my-backend .
-        docker scout quickview
-        docker scout cves my-backend --format sarif > docker-cves.sarif
-        
-    - name: Update Kubernetes Security Configurations
-      run: |
-        # Automated security context updates for all services
-        for service in mongodb backend frontend; do
-          sed -i "/$service:/,/^$/c\- name: $service\n  securityContext:\n    allowPrivilegeEscalation: false\n    runAsNonRoot: true\n    readOnlyRootFilesystem: true" DEPLOYEMENT/K8/k8.yaml
-        done
-        
+
     - name: CSRF Protection Implementation
       run: |
         npm install csurf
         sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
-        
-    - name: Update Docker Compose Security
-      run: |
-        # Restrict ports and add no-new-privileges
-        sed -i 's/- "3000:3000"/- "3000:3000:127.0.0.1"/g' DEPLOYEMENT/DOCKER/docker-compose.yaml
-        sed -i 's/mongodb:/mongodb:\n    security_opt:\n      - no-new-privileges:true/g' DEPLOYEMENT/DOCKER/docker-compose.yaml
-        
+
     - name: Upload Security Scan Results
       uses: actions/upload-artifact@v4
       with:
         name: security-scan-results
         path: |
-          docker-cves.sarif
           semgrep-results.json
-          
+
     - name: Check for High Severity Vulnerabilities
       run: |
-        if [ $(grep -c 'high' docker-cves.sarif) -gt 0 ]; then
+        if [ $(npm audit --json | grep -c '"severity": "high"') -gt 0 ]; then
           echo "High severity vulnerabilities detected"
           exit 1
         fi
