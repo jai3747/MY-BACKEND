@@ -1,85 +1,162 @@
-# # # # # name: Backend Security Scan
+# # # # # # name: Backend Security Scan
+
+# # # # # # on:
+# # # # # #  workflow_dispatch:
+# # # # # #  push:
+# # # # # #    branches: [main]
+# # # # # #  pull_request:
+# # # # # #    branches: [main]
+
+# # # # # # jobs:
+# # # # # #  security-checks:
+# # # # # #    runs-on: ubuntu-latest
+# # # # # #    permissions:
+# # # # # #      contents: read
+# # # # # #      security-events: write
+
+# # # # # #    steps:
+# # # # # #    - name: Checkout Repository
+# # # # # #      uses: actions/checkout@v4.1.1
+
+# # # # # #    - name: Setup Node.js
+# # # # # #      uses: actions/setup-node@v4.0.2
+# # # # # #      with:
+# # # # # #        node-version: '18'
+# # # # # #        cache: 'npm'
+
+# # # # # #    - name: Install Dependencies
+# # # # # #      run: |
+# # # # # #        npm ci
+# # # # # #        npm install -g npm-force-resolutions
+# # # # # #        npx npm-force-resolutions
+
+# # # # # #    - name: Pin Package Versions
+# # # # # #      run: |
+# # # # # #        npm config set save-exact true
+# # # # # #        npm update --save
+
+# # # # # #    - name: Dependency Security Audit
+# # # # # #      run: |
+# # # # # #        npm audit --audit-level=high
+# # # # # #        npm audit signatures
+
+# # # # # #    - name: Secret Detection
+# # # # # #      uses: trufflesecurity/trufflehog@v3.3.0
+# # # # # #      with:
+# # # # # #        path: ./
+# # # # # #        base_ref: ${{ github.head_ref || github.ref }}
+
+# # # # # #    - name: Snyk Security Scan
+# # # # # #      uses: snyk/actions/node@master
+# # # # # #      env:
+# # # # # #        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+# # # # # #      with:
+# # # # # #        command: test
+
+# # # # # #    - name: CSRF Protection Implementation
+# # # # # #      run: |
+# # # # # #        npm install csurf
+# # # # # #        sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
+
+# # # # # #    - name: Pin Dockerfile Base Image
+# # # # # #      run: |
+# # # # # #        BASE_IMAGE_HASH=$(docker pull node:16-alpine | grep Digest | cut -d: -f2)
+# # # # # #        sed -i "s/FROM node:16-alpine/FROM node:16-alpine@sha256:$BASE_IMAGE_HASH/" Dockerfile
+
+# # # # # #    - name: Update Package Versions
+# # # # # #      run: |
+# # # # # #        npm pkg set dependencies.body-parser="1.20.3"
+# # # # # #        npm install
+
+# # # # # #    - name: Upload Security Scan Results
+# # # # # #      uses: actions/upload-artifact@v4
+# # # # # #      with:
+# # # # # #        name: security-scan-results
+# # # # # #        path: semgrep-results.json
+
+# # # # # #    - name: Check for High Severity Vulnerabilities
+# # # # # #      run: |
+# # # # # #        if [ $(npm audit --json | grep -c '"severity": "high"') -gt 0 ]; then
+# # # # # #          echo "High severity vulnerabilities detected"
+# # # # # #          exit 1
+# # # # # #        fi
+
+# # # # # name: Parallel Security Scanning
 
 # # # # # on:
-# # # # #  workflow_dispatch:
-# # # # #  push:
-# # # # #    branches: [main]
-# # # # #  pull_request:
-# # # # #    branches: [main]
+# # # # #   workflow_dispatch:
+# # # # #   push:
+# # # # #     branches: [main]
+# # # # #   pull_request:
+# # # # #     branches: [main]
 
 # # # # # jobs:
-# # # # #  security-checks:
-# # # # #    runs-on: ubuntu-latest
-# # # # #    permissions:
-# # # # #      contents: read
-# # # # #      security-events: write
+# # # # #   backend-security-scans:
+# # # # #     runs-on: ubuntu-latest
+# # # # #     strategy:
+# # # # #       matrix:
+# # # # #         scan: [snyk, trufflehog]
+# # # # #     steps:
+# # # # #     - uses: actions/checkout@v4.1.1
+# # # # #       with:
+# # # # #         repository: MY-BACKEND
 
-# # # # #    steps:
-# # # # #    - name: Checkout Repository
-# # # # #      uses: actions/checkout@v4.1.1
+# # # # #     - name: Setup Node.js
+# # # # #       uses: actions/setup-node@v4.0.2
+# # # # #       with:
+# # # # #         node-version: '18'
 
-# # # # #    - name: Setup Node.js
-# # # # #      uses: actions/setup-node@v4.0.2
-# # # # #      with:
-# # # # #        node-version: '18'
-# # # # #        cache: 'npm'
+# # # # #     - name: Snyk Scan
+# # # # #       if: matrix.scan == 'snyk'
+# # # # #       uses: snyk/actions/node@master
+# # # # #       env:
+# # # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+# # # # #       with:
+# # # # #         command: test
 
-# # # # #    - name: Install Dependencies
-# # # # #      run: |
-# # # # #        npm ci
-# # # # #        npm install -g npm-force-resolutions
-# # # # #        npx npm-force-resolutions
+# # # # #     - name: Trufflehog Scan
+# # # # #       if: matrix.scan == 'trufflehog'
+# # # # #       uses: trufflesecurity/trufflehog@v3.3.0
+# # # # #       with:
+# # # # #         path: ./
+# # # # #         base_ref: ${{ github.head_ref || github.ref }}
 
-# # # # #    - name: Pin Package Versions
-# # # # #      run: |
-# # # # #        npm config set save-exact true
-# # # # #        npm update --save
+# # # # #   frontend-security-scans:
+# # # # #     runs-on: ubuntu-latest
+# # # # #     strategy:
+# # # # #       matrix:
+# # # # #         scan: [snyk, trufflehog, semgrep]
+# # # # #     steps:
+# # # # #     - uses: actions/checkout@v4.1.1
+# # # # #       with:
+# # # # #         repository: MY-FRONTEND
 
-# # # # #    - name: Dependency Security Audit
-# # # # #      run: |
-# # # # #        npm audit --audit-level=high
-# # # # #        npm audit signatures
+# # # # #     - name: Setup Node.js
+# # # # #       uses: actions/setup-node@v4.0.2
+# # # # #       with:
+# # # # #         node-version: '18'
 
-# # # # #    - name: Secret Detection
-# # # # #      uses: trufflesecurity/trufflehog@v3.3.0
-# # # # #      with:
-# # # # #        path: ./
-# # # # #        base_ref: ${{ github.head_ref || github.ref }}
+# # # # #     - name: Snyk Scan
+# # # # #       if: matrix.scan == 'snyk'
+# # # # #       uses: snyk/actions/node@master
+# # # # #       env:
+# # # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+# # # # #       with:
+# # # # #         command: test
 
-# # # # #    - name: Snyk Security Scan
-# # # # #      uses: snyk/actions/node@master
-# # # # #      env:
-# # # # #        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-# # # # #      with:
-# # # # #        command: test
+# # # # #     - name: Trufflehog Scan
+# # # # #       if: matrix.scan == 'trufflehog'
+# # # # #       uses: trufflesecurity/trufflehog@v3.3.0
+# # # # #       with:
+# # # # #         path: ./
+# # # # #         base_ref: ${{ github.head_ref || github.ref }}
 
-# # # # #    - name: CSRF Protection Implementation
-# # # # #      run: |
-# # # # #        npm install csurf
-# # # # #        sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
+# # # # #     - name: Semgrep Scan
+# # # # #       if: matrix.scan == 'semgrep'
+# # # # #       uses: semgrep/semgrep-action@v1
+# # # # #       env:
+# # # # #         SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
-# # # # #    - name: Pin Dockerfile Base Image
-# # # # #      run: |
-# # # # #        BASE_IMAGE_HASH=$(docker pull node:16-alpine | grep Digest | cut -d: -f2)
-# # # # #        sed -i "s/FROM node:16-alpine/FROM node:16-alpine@sha256:$BASE_IMAGE_HASH/" Dockerfile
-
-# # # # #    - name: Update Package Versions
-# # # # #      run: |
-# # # # #        npm pkg set dependencies.body-parser="1.20.3"
-# # # # #        npm install
-
-# # # # #    - name: Upload Security Scan Results
-# # # # #      uses: actions/upload-artifact@v4
-# # # # #      with:
-# # # # #        name: security-scan-results
-# # # # #        path: semgrep-results.json
-
-# # # # #    - name: Check for High Severity Vulnerabilities
-# # # # #      run: |
-# # # # #        if [ $(npm audit --json | grep -c '"severity": "high"') -gt 0 ]; then
-# # # # #          echo "High severity vulnerabilities detected"
-# # # # #          exit 1
-# # # # #        fi
 
 # # # # name: Parallel Security Scanning
 
@@ -91,6 +168,7 @@
 # # # #     branches: [main]
 
 # # # # jobs:
+
 # # # #   backend-security-scans:
 # # # #     runs-on: ubuntu-latest
 # # # #     strategy:
@@ -99,13 +177,11 @@
 # # # #     steps:
 # # # #     - uses: actions/checkout@v4.1.1
 # # # #       with:
-# # # #         repository: MY-BACKEND
-
+# # # #         repository: your-backend-repo
 # # # #     - name: Setup Node.js
 # # # #       uses: actions/setup-node@v4.0.2
 # # # #       with:
 # # # #         node-version: '18'
-
 # # # #     - name: Snyk Scan
 # # # #       if: matrix.scan == 'snyk'
 # # # #       uses: snyk/actions/node@master
@@ -113,7 +189,6 @@
 # # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # # # #       with:
 # # # #         command: test
-
 # # # #     - name: Trufflehog Scan
 # # # #       if: matrix.scan == 'trufflehog'
 # # # #       uses: trufflesecurity/trufflehog@v3.3.0
@@ -129,13 +204,11 @@
 # # # #     steps:
 # # # #     - uses: actions/checkout@v4.1.1
 # # # #       with:
-# # # #         repository: MY-FRONTEND
-
+# # # #         repository: your-frontend-repo
 # # # #     - name: Setup Node.js
 # # # #       uses: actions/setup-node@v4.0.2
 # # # #       with:
 # # # #         node-version: '18'
-
 # # # #     - name: Snyk Scan
 # # # #       if: matrix.scan == 'snyk'
 # # # #       uses: snyk/actions/node@master
@@ -143,21 +216,17 @@
 # # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # # # #       with:
 # # # #         command: test
-
 # # # #     - name: Trufflehog Scan
 # # # #       if: matrix.scan == 'trufflehog'
 # # # #       uses: trufflesecurity/trufflehog@v3.3.0
 # # # #       with:
 # # # #         path: ./
 # # # #         base_ref: ${{ github.head_ref || github.ref }}
-
 # # # #     - name: Semgrep Scan
 # # # #       if: matrix.scan == 'semgrep'
 # # # #       uses: semgrep/semgrep-action@v1
 # # # #       env:
 # # # #         SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
-
-
 # # # name: Parallel Security Scanning
 
 # # # on:
@@ -177,7 +246,8 @@
 # # #     steps:
 # # #     - uses: actions/checkout@v4.1.1
 # # #       with:
-# # #         repository: your-backend-repo
+# # #         repository: 'jai3747/MY-BACKEND'
+# # #         path: 'backend'
 # # #     - name: Setup Node.js
 # # #       uses: actions/setup-node@v4.0.2
 # # #       with:
@@ -189,11 +259,12 @@
 # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # # #       with:
 # # #         command: test
+# # #         path: backend
 # # #     - name: Trufflehog Scan
 # # #       if: matrix.scan == 'trufflehog'
 # # #       uses: trufflesecurity/trufflehog@v3.3.0
 # # #       with:
-# # #         path: ./
+# # #         path: backend
 # # #         base_ref: ${{ github.head_ref || github.ref }}
 
 # # #   frontend-security-scans:
@@ -204,7 +275,8 @@
 # # #     steps:
 # # #     - uses: actions/checkout@v4.1.1
 # # #       with:
-# # #         repository: your-frontend-repo
+# # #         repository: 'jai3747/MY-FRONTEND'
+# # #         path: 'node_modules'
 # # #     - name: Setup Node.js
 # # #       uses: actions/setup-node@v4.0.2
 # # #       with:
@@ -216,18 +288,23 @@
 # # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # # #       with:
 # # #         command: test
+# # #         path: node_modules
 # # #     - name: Trufflehog Scan
 # # #       if: matrix.scan == 'trufflehog'
 # # #       uses: trufflesecurity/trufflehog@v3.3.0
 # # #       with:
-# # #         path: ./
+# # #         path: frontend
 # # #         base_ref: ${{ github.head_ref || github.ref }}
 # # #     - name: Semgrep Scan
 # # #       if: matrix.scan == 'semgrep'
 # # #       uses: semgrep/semgrep-action@v1
 # # #       env:
 # # #         SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
-# # name: Parallel Security Scanning
+# # #       with:
+# # #         config: p/java
+# # #         path: frontend
+
+# # name: Security Scanning Pipeline
 
 # # on:
 # #   workflow_dispatch:
@@ -237,244 +314,241 @@
 # #     branches: [main]
 
 # # jobs:
-
-# #   backend-security-scans:
+# #   backend-scans:
 # #     runs-on: ubuntu-latest
-# #     strategy:
-# #       matrix:
-# #         scan: [snyk, trufflehog]
 # #     steps:
 # #     - uses: actions/checkout@v4.1.1
 # #       with:
-# #         repository: 'jai3747/MY-BACKEND'
-# #         path: 'backend'
-# #     - name: Setup Node.js
-# #       uses: actions/setup-node@v4.0.2
+# #         repository: jai3747/MY-BACKEND
+    
+# #     - uses: actions/setup-node@v4.0.2
 # #       with:
 # #         node-version: '18'
-# #     - name: Snyk Scan
-# #       if: matrix.scan == 'snyk'
+# #         cache: 'npm'
+    
+# #     - name: Install Dependencies
+# #       run: npm ci
+    
+# #     - name: Snyk Dependency Scan
 # #       uses: snyk/actions/node@master
 # #       env:
 # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # #       with:
-# #         command: test
-# #         path: backend
-# #     - name: Trufflehog Scan
-# #       if: matrix.scan == 'trufflehog'
+# #         args: --all-projects
+    
+# #     - name: TruffleHog Secrets Scan
 # #       uses: trufflesecurity/trufflehog@v3.3.0
 # #       with:
-# #         path: backend
+# #         extra_args: --debug --only-verified
+# #         path: .
 # #         base_ref: ${{ github.head_ref || github.ref }}
 
-# #   frontend-security-scans:
-# #     runs-on: ubuntu-latest
-# #     strategy:
-# #       matrix:
-# #         scan: [snyk, trufflehog, semgrep]
+# #   frontend-scans:
+# #     runs-on: ubuntu-latest 
 # #     steps:
 # #     - uses: actions/checkout@v4.1.1
 # #       with:
-# #         repository: 'jai3747/MY-FRONTEND'
-# #         path: 'node_modules'
-# #     - name: Setup Node.js
-# #       uses: actions/setup-node@v4.0.2
+# #         repository: jai3747/MY-FRONTEND
+    
+# #     - uses: actions/setup-node@v4.0.2
 # #       with:
 # #         node-version: '18'
-# #     - name: Snyk Scan
-# #       if: matrix.scan == 'snyk'
+# #         cache: 'npm'
+    
+# #     - name: Install Dependencies  
+# #       run: npm ci
+    
+# #     - name: Snyk Dependency Scan
 # #       uses: snyk/actions/node@master
 # #       env:
 # #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 # #       with:
-# #         command: test
-# #         path: node_modules
-# #     - name: Trufflehog Scan
-# #       if: matrix.scan == 'trufflehog'
-# #       uses: trufflesecurity/trufflehog@v3.3.0
-# #       with:
-# #         path: frontend
-# #         base_ref: ${{ github.head_ref || github.ref }}
+# #         args: --all-projects
+
 # #     - name: Semgrep Scan
-# #       if: matrix.scan == 'semgrep'
 # #       uses: semgrep/semgrep-action@v1
 # #       env:
 # #         SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 # #       with:
-# #         config: p/java
-# #         path: frontend
+# #         config: |
+# #           p/typescript
+# #           p/react
+# #           p/javascript
+# #           p/nodejs
+# #         exclude: node_modules
+
+# #     - name: TruffleHog Secrets Scan  
+# #       uses: trufflesecurity/trufflehog@v3.3.0
+# #       with:
+# #         extra_args: --debug --only-verified
+# #         path: .
+# #         base_ref: ${{ github.head_ref || github.ref }}
+
 
 # name: Security Scanning Pipeline
 
 # on:
-#   workflow_dispatch:
-#   push:
-#     branches: [main]
-#   pull_request:
-#     branches: [main]
+#  workflow_dispatch:
+#  push:
+#    branches: [main]
+#  pull_request:
+#    branches: [main]
 
 # jobs:
-#   backend-scans:
-#     runs-on: ubuntu-latest
-#     steps:
-#     - uses: actions/checkout@v4.1.1
-#       with:
-#         repository: jai3747/MY-BACKEND
-    
-#     - uses: actions/setup-node@v4.0.2
-#       with:
-#         node-version: '18'
-#         cache: 'npm'
-    
-#     - name: Install Dependencies
-#       run: npm ci
-    
-#     - name: Snyk Dependency Scan
-#       uses: snyk/actions/node@master
-#       env:
-#         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-#       with:
-#         args: --all-projects
-    
-#     - name: TruffleHog Secrets Scan
-#       uses: trufflesecurity/trufflehog@v3.3.0
-#       with:
-#         extra_args: --debug --only-verified
-#         path: .
-#         base_ref: ${{ github.head_ref || github.ref }}
+#  frontend-scans:
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v4.1.1
+#      with:
+#        repository: jai3747/MY-FRONTEND
+   
+#    - uses: actions/setup-node@v4.0.2
+#      with:
+#        node-version: '18'
+#        cache: 'npm'
+   
+#    - name: Install Dependencies
+#      run: |
+#        npm install nth-check@2.0.1
+#        npm install postcss@8.4.31
+#        npm install serialize-javascript@6.0.2
+#        npm ci
+   
+#    - name: Fix Package Vulnerabilities
+#      run: npm audit fix --force
+   
+#    - name: Snyk Dependency Scan
+#      uses: snyk/actions/node@master
+#      env:
+#        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+#      with:
+#        args: --all-projects
+#        command: monitor
 
-#   frontend-scans:
-#     runs-on: ubuntu-latest 
-#     steps:
-#     - uses: actions/checkout@v4.1.1
-#       with:
-#         repository: jai3747/MY-FRONTEND
-    
-#     - uses: actions/setup-node@v4.0.2
-#       with:
-#         node-version: '18'
-#         cache: 'npm'
-    
-#     - name: Install Dependencies  
-#       run: npm ci
-    
-#     - name: Snyk Dependency Scan
-#       uses: snyk/actions/node@master
-#       env:
-#         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-#       with:
-#         args: --all-projects
+#    - name: Semgrep Scan
+#      uses: semgrep/semgrep-action@v1
+#      env:
+#        SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+#      with:
+#        config: |
+#          p/typescript
+#          p/react
+#          p/javascript
+#          p/owasp-top-ten
+#        exclude: node_modules
 
-#     - name: Semgrep Scan
-#       uses: semgrep/semgrep-action@v1
-#       env:
-#         SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
-#       with:
-#         config: |
-#           p/typescript
-#           p/react
-#           p/javascript
-#           p/nodejs
-#         exclude: node_modules
+#    - name: TruffleHog Scan
+#      uses: trufflesecurity/trufflehog@v3.3.0
+#      with:
+#        extra_args: --debug --only-verified
+#        path: .
+#        base_ref: ${{ github.head_ref || github.ref }}
 
-#     - name: TruffleHog Secrets Scan  
-#       uses: trufflesecurity/trufflehog@v3.3.0
-#       with:
-#         extra_args: --debug --only-verified
-#         path: .
-#         base_ref: ${{ github.head_ref || github.ref }}
+#  backend-scans:
+#    runs-on: ubuntu-latest
+#    steps:
+#    - uses: actions/checkout@v4.1.1
+#      with:
+#        repository: jai3747/MY-BACKEND
+   
+#    - uses: actions/setup-node@v4.0.2
+#      with:
+#        node-version: '18'
+#        cache: 'npm'
+   
+#    - name: Install Dependencies
+#      run: |
+#        npm install inflight@2.0.0
+#        npm ci
+   
+#    - name: Fix Package Vulnerabilities 
+#      run: npm audit fix --force
+   
+#    - name: Snyk Scan
+#      uses: snyk/actions/node@master
+#      env:
+#        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+#      with:
+#        args: --all-projects
+#        command: monitor
 
+#    - name: TruffleHog Scan
+#      uses: trufflesecurity/trufflehog@v3.3.0
+#      with:
+#        extra_args: --debug --only-verified
+#        path: .
+#        base_ref: ${{ github.head_ref || github.ref }}
 
-name: Security Scanning Pipeline
+name: Security & Build Pipeline
 
 on:
- workflow_dispatch:
- push:
-   branches: [main]
- pull_request:
-   branches: [main]
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request: 
+    branches: [main]
 
 jobs:
- frontend-scans:
-   runs-on: ubuntu-latest
-   steps:
-   - uses: actions/checkout@v4.1.1
-     with:
-       repository: jai3747/MY-FRONTEND
-   
-   - uses: actions/setup-node@v4.0.2
-     with:
-       node-version: '18'
-       cache: 'npm'
-   
-   - name: Install Dependencies
-     run: |
-       npm install nth-check@2.0.1
-       npm install postcss@8.4.31
-       npm install serialize-javascript@6.0.2
-       npm ci
-   
-   - name: Fix Package Vulnerabilities
-     run: npm audit fix --force
-   
-   - name: Snyk Dependency Scan
-     uses: snyk/actions/node@master
-     env:
-       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-     with:
-       args: --all-projects
-       command: monitor
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-FRONTEND
+      
+      - uses: actions/setup-node@v4.0.2
+        with:
+          node-version: '18'
+          cache: 'npm'
 
-   - name: Semgrep Scan
-     uses: semgrep/semgrep-action@v1
-     env:
-       SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
-     with:
-       config: |
-         p/typescript
-         p/react
-         p/javascript
-         p/owasp-top-ten
-       exclude: node_modules
+      - name: Install & Fix Dependencies
+        run: |
+          npm install nth-check@2.0.1 postcss@8.4.31 serialize-javascript@6.0.2
+          npm ci
+          npm audit fix --force
+          
+      - name: Build
+        run: npm run build
 
-   - name: TruffleHog Scan
-     uses: trufflesecurity/trufflehog@v3.3.0
-     with:
-       extra_args: --debug --only-verified
-       path: .
-       base_ref: ${{ github.head_ref || github.ref }}
+      - name: Security Scans
+        run: |
+          snyk test --all-projects
+          semgrep scan --config p/typescript,p/react,p/javascript,p/owasp-top-ten
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
- backend-scans:
-   runs-on: ubuntu-latest
-   steps:
-   - uses: actions/checkout@v4.1.1
-     with:
-       repository: jai3747/MY-BACKEND
-   
-   - uses: actions/setup-node@v4.0.2
-     with:
-       node-version: '18'
-       cache: 'npm'
-   
-   - name: Install Dependencies
-     run: |
-       npm install inflight@2.0.0
-       npm ci
-   
-   - name: Fix Package Vulnerabilities 
-     run: npm audit fix --force
-   
-   - name: Snyk Scan
-     uses: snyk/actions/node@master
-     env:
-       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-     with:
-       args: --all-projects
-       command: monitor
+  backend:
+    runs-on: ubuntu-latest 
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-BACKEND
+          
+      - uses: actions/setup-node@v4.0.2
+        with:
+          node-version: '18'
+          cache: 'npm'
 
-   - name: TruffleHog Scan
-     uses: trufflesecurity/trufflehog@v3.3.0
-     with:
-       extra_args: --debug --only-verified
-       path: .
-       base_ref: ${{ github.head_ref || github.ref }}
+      - name: Install Dependencies
+        run: |
+          npm install
+          npm ci
+          npm audit fix --force
+          
+      - name: Build
+        run: npm run build
+
+      - name: Security Scans
+        run: snyk test --all-projects
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  trufflehog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: trufflesecurity/trufflehog@v3.3.0
+        with:
+          extra_args: --debug --only-verified
+          path: .
+          base_ref: ${{ github.head_ref || github.ref }}
