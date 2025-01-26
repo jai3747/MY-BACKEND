@@ -288,7 +288,7 @@ jobs:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
         command: test
-        path: frontend
+        path: node_modules
     - name: Trufflehog Scan
       if: matrix.scan == 'trufflehog'
       uses: trufflesecurity/trufflehog@v3.3.0
