@@ -276,7 +276,7 @@ jobs:
     - uses: actions/checkout@v4.1.1
       with:
         repository: 'jai3747/MY-FRONTEND'
-        path: 'frontend'
+        path: 'node_modules'
     - name: Setup Node.js
       uses: actions/setup-node@v4.0.2
       with:
