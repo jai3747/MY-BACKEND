@@ -36,7 +36,6 @@ jobs:
         npm update --save
 
     - name: Dependency Security Audit
-      continue-on-error: true
       run: |
         npm audit --audit-level=high
         npm audit signatures
@@ -65,12 +64,21 @@ jobs:
         npm install csurf
         sed -i '/const app = express();/a\const csrf = require("csurf");\napp.use(csrf());' server.js
 
+    - name: Pin Dockerfile Base Image
+      run: |
+        BASE_IMAGE_HASH=$(docker pull node:16-alpine | grep Digest | cut -d: -f2)
+        sed -i "s/FROM node:16-alpine/FROM node:16-alpine@sha256:$BASE_IMAGE_HASH/" Dockerfile
+
+    - name: Update Package Versions
+      run: |
+        npm pkg set dependencies.body-parser="1.20.3"
+        npm install
+
     - name: Upload Security Scan Results
       uses: actions/upload-artifact@v4
       with:
         name: security-scan-results
-        path: |
-          semgrep-results.json
+        path: semgrep-results.json
 
     - name: Check for High Severity Vulnerabilities
       run: |
