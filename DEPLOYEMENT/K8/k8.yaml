@@ -1927,7 +1927,7 @@ spec:
   storageClassName: standard-rwo
   resources:
     requests:
-      storage: 1Gi
+      storage: 10Gi
 
 ---
 apiVersion: apps/v1
