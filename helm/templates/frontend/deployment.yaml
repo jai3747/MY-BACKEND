@@ -21,7 +21,7 @@ spec:
         - containerPort: {{ .Values.frontend.port }}
         env:
         - name: REACT_APP_API_URL
-          value: "/api"
+          value: "http://34.100.172.207:5000/api"
         - name: REACT_APP_ENV
           value: {{ .Values.global.environment }}
         resources:
