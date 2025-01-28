@@ -1,0 +1,350 @@
+name: Application CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_VERSION: '18'
+  NODE_OPTIONS: --openssl-legacy-provider
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  GKE_CLUSTER: cluster-1
+  GKE_ZONE: asia-south1-a
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  MONGODB_VERSION: '6.0'
+  DOCKER_TAG: ${{ github.sha }}
+  K8S_PATH: MY-BACKEND/DEPLOYEMENT/K8/k8.yaml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Frontend Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-frontend
+          path: MY-frontend
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: MY-frontend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: MY-frontend
+        run: |
+          npm ci || npm install
+          npm audit fix || true
+          npm audit --json > ../frontend-npm-audit.json || true
+
+      - name: Run Snyk Security Scan
+        working-directory: MY-frontend
+        continue-on-error: true
+        run: |
+          npm install -g snyk
+          snyk test --json > ../frontend-snyk.json || true
+          snyk monitor || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Run Semgrep Analysis
+        uses: semgrep/semgrep-action@v1
+        continue-on-error: true
+        with:
+          publishToken: ${{ secrets.SEMGREP_TOKEN }}
+          publishDeployment: 1
+          generateSarif: 1
+          output: frontend-semgrep.sarif
+          config: >-
+            p/default
+            p/security-audit
+            p/owasp-top-ten
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: MY-frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-frontend-app:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-frontend-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+
+      - name: Scan Frontend Container
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/my-frontend-app:${{ env.DOCKER_TAG }}
+          format: 'sarif'
+          output: 'frontend-trivy.sarif'
+          severity: 'HIGH,CRITICAL'
+          timeout: '10m'
+          scanners: 'vuln,secret,config'
+          ignore-unfixed: true
+
+      - name: Upload Frontend Security Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-security-results
+          path: |
+            frontend-snyk.json
+            frontend-semgrep.sarif
+            frontend-trivy.sarif
+          retention-days: 5
+
+  backend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Backend Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-backend
+          path: MY-backend
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: MY-backend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: MY-backend
+        run: |
+          npm ci || npm install
+          npm audit fix || true
+          npm audit --json > ../backend-npm-audit.json || true
+
+      - name: Run Snyk Security Scan
+        working-directory: MY-backend
+        continue-on-error: true
+        run: |
+          npm install -g snyk
+          snyk test --json > ../backend-snyk.json || true
+          snyk monitor || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Run Semgrep Analysis
+        uses: semgrep/semgrep-action@v1
+        continue-on-error: true
+        with:
+          publishToken: ${{ secrets.SEMGREP_TOKEN }}
+          publishDeployment: 1
+          generateSarif: 1
+          output: backend-semgrep.sarif
+          config: >-
+            p/default
+            p/security-audit
+            p/owasp-top-ten
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: MY-backend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-backend-app:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-backend-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+
+      - name: Scan Backend Container
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/my-backend-app:${{ env.DOCKER_TAG }}
+          format: 'sarif'
+          output: 'backend-trivy.sarif'
+          severity: 'HIGH,CRITICAL'
+          timeout: '10m'
+          scanners: 'vuln,secret,config'
+          ignore-unfixed: true
+
+      - name: Upload Backend Security Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-security-results
+          path: |
+            backend-snyk.json
+            backend-semgrep.sarif
+            backend-trivy.sarif
+          retention-days: 5
+
+  deploy:
+    needs: [frontend-security, backend-security]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Repositories
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-BACKEND
+          path: MY-BACKEND
+
+      - name: Setup GCP Authentication
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Configure GCP Environment
+        uses: 'google-github-actions/setup-gcloud@v1'
+        with:
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - name: Setup Kubernetes Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+
+      - name: Configure Kubernetes Cluster
+        run: |
+          gcloud container clusters get-credentials "$GKE_CLUSTER" \
+            --zone "$GKE_ZONE" \
+            --project "$PROJECT_ID"
+
+      - name: Setup MongoDB Credentials
+        run: |
+          kubectl create secret generic mongodb-secret \
+            --from-literal=MONGO_URI="${{ secrets.MONGODB_URI }}" \
+            --from-literal=MONGO_USERNAME="${{ secrets.MONGO_USERNAME }}" \
+            --from-literal=MONGO_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Configure Storage
+        run: |
+          if ! kubectl get storageclass standard-rwo &> /dev/null; then
+            cat <<EOF | kubectl create -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: standard-rwo
+          provisioner: kubernetes.io/gce-pd
+          parameters:
+            type: pd-standard
+          volumeBindingMode: WaitForFirstConsumer
+          EOF
+          fi
+
+      - name: Deploy Application
+        run: |
+          envsubst '${DOCKER_USERNAME} ${GITHUB_SHA}' < ${{ env.K8S_PATH }} > k8s_processed.yaml
+          kubectl apply -f k8s_processed.yaml
+          
+          echo "Waiting for deployments..."
+          kubectl rollout status statefulset/mongodb-deployment --timeout=300s
+          kubectl rollout status deployment/backend-deployment --timeout=300s
+          kubectl rollout status deployment/frontend-deployment --timeout=300s
+
+  generate-report:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download Scan Results
+        uses: actions/download-artifact@v3
+        with:
+          path: scan-results
+
+      - name: Process Scan Results
+        run: |
+          echo "# 🔒 Security Scan Summary Report" >> $GITHUB_STEP_SUMMARY
+          
+          # Frontend Security Analysis
+          echo "## 🌐 Frontend Security Analysis" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 1️⃣ Snyk Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/frontend-security-results/frontend-snyk.json" ]] && {
+            jq -r '
+              "Vulnerabilities Found:
+              🔴 Critical: \(.vulnerabilities | map(select(.severity == "critical")) | length)
+              🟠 High: \(.vulnerabilities | map(select(.severity == "high")) | length)
+              🟡 Medium: \(.vulnerabilities | map(select(.severity == "medium")) | length)
+              🟢 Low: \(.vulnerabilities | map(select(.severity == "low")) | length)"
+            ' scan-results/frontend-security-results/frontend-snyk.json >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "### 2️⃣ Semgrep Analysis" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/frontend-security-results/frontend-semgrep.sarif" ]] && {
+            jq -r '
+              .runs[].results | length | 
+              "Total findings: \(.)"
+            ' scan-results/frontend-security-results/frontend-semgrep.sarif >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "### 3️⃣ Trivy Container Scan" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/frontend-security-results/frontend-trivy.sarif" ]] && {
+            jq -r '
+              .runs[].results | length |
+              "Total vulnerabilities: \(.)"
+            ' scan-results/frontend-security-results/frontend-trivy.sarif >> $GITHUB_STEP_SUMMARY
+          }
+
+          # Backend Security Analysis
+          echo "## ⚙️ Backend Security Analysis" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 1️⃣ Snyk Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/backend-security-results/backend-snyk.json" ]] && {
+            jq -r '
+              "Vulnerabilities Found:
+              🔴 Critical: \(.vulnerabilities | map(select(.severity == "critical")) | length)
+              🟠 High: \(.vulnerabilities | map(select(.severity == "high")) | length)
+              🟡 Medium: \(.vulnerabilities | map(select(.severity == "medium")) | length)
+              🟢 Low: \(.vulnerabilities | map(select(.severity == "low")) | length)"
+            ' scan-results/backend-security-results/backend-snyk.json >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "### 2️⃣ Semgrep Analysis" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/backend-security-results/backend-semgrep.sarif" ]] && {
+            jq -r '
+              .runs[].results | length | 
+              "Total findings: \(.)"
+            ' scan-results/backend-security-results/backend-semgrep.sarif >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "### 3️⃣ Trivy Container Scan" >> $GITHUB_STEP_SUMMARY
+          [[ -f "scan-results/backend-security-results/backend-trivy.sarif" ]] && {
+            jq -r '
+              .runs[].results | length |
+              "Total vulnerabilities: \(.)"
+            ' scan-results/backend-security-results/backend-trivy.sarif >> $GITHUB_STEP_SUMMARY
+          }
