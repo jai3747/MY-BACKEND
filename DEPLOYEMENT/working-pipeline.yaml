@@ -1,0 +1,207 @@
+name: Security, Build & Deploy Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_OPTIONS: --openssl-legacy-provider
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  GKE_CLUSTER: cluster-1 
+  GKE_ZONE: asia-south1-a
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  MONGODB_VERSION: "6.0"
+  DOCKER_TAG: ${{ github.sha }}
+  K8S_PATH: MY-BACKEND/DEPLOYEMENT/K8/k8.yaml
+
+jobs:
+  security-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [frontend, backend]
+        task: [snyk, semgrep, docker]
+      fail-fast: false
+    
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Component Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-${{ matrix.component }}
+          path: MY-${{ matrix.component }}
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        if: matrix.task != 'docker'
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: MY-${{ matrix.component }}/package-lock.json
+
+      - name: Install Dependencies
+        if: matrix.task != 'docker'
+        working-directory: MY-${{ matrix.component }}
+        run: npm ci || npm install
+
+      - name: Run Snyk Scan
+        if: matrix.task == 'snyk'
+        working-directory: MY-${{ matrix.component }}
+        run: |
+          npm install -g snyk
+          snyk test --json > ../${{ matrix.component }}-snyk.json || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Run Semgrep Scan
+        if: matrix.task == 'semgrep'
+        uses: semgrep/semgrep-action@v1
+        with:
+          publishToken: ${{ secrets.SEMGREP_TOKEN }}
+          publishDeployment: 1
+          generateSarif: 1
+          output: ${{ matrix.component }}-semgrep.sarif
+
+      - name: Set up Docker Buildx
+        if: matrix.task == 'docker'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        if: matrix.task == 'docker'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker Build and Push
+        if: matrix.task == 'docker'
+        uses: docker/build-push-action@v5
+        with:
+          context: MY-${{ matrix.component }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Run Trivy Scan
+        if: matrix.task == 'docker'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+          format: 'sarif'
+          output: '${{ matrix.component }}-trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+
+  deploy:
+    needs: security-and-build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: Checkout Backend Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-BACKEND
+          path: MY-BACKEND
+          fetch-depth: 0
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+
+      - name: Install kubectl
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials "$GKE_CLUSTER" \
+            --zone "$GKE_ZONE" \
+            --project "$PROJECT_ID"
+
+      - name: Create MongoDB Secret
+        run: |
+          kubectl create secret generic mongodb-secret \
+            --from-literal=MONGO_URI="${{ secrets.MONGODB_URI }}" \
+            --from-literal=MONGO_USERNAME="${{ secrets.MONGO_USERNAME }}" \
+            --from-literal=MONGO_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Check and Create Storage Class
+        run: |
+          if ! kubectl get storageclass standard-rwo &> /dev/null; then
+            cat <<EOF | kubectl create -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: standard-rwo
+          provisioner: kubernetes.io/gce-pd
+          parameters:
+            type: pd-standard
+          volumeBindingMode: WaitForFirstConsumer
+          EOF
+          else
+            echo "StorageClass standard-rwo already exists"
+          fi
+
+      - name: Prepare K8s Config
+        run: |
+          envsubst '${DOCKER_USERNAME} ${GITHUB_SHA}' < ${{ env.K8S_PATH }} > k8s_processed.yaml
+
+      - name: Apply Kubernetes Configurations
+        run: |
+          kubectl apply -f k8s_processed.yaml
+          
+          echo "Waiting for deployments..."
+          kubectl rollout status statefulset/mongodb-deployment --timeout=300s
+          kubectl rollout status deployment/backend-deployment --timeout=300s
+          kubectl rollout status deployment/frontend-deployment --timeout=300s
+          
+          echo "Deployment Status:"
+          kubectl get pods,svc,deployments,statefulsets
+
+  report:
+    needs: [security-and-build, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate Final Report
+        run: |
+          echo "# Pipeline Execution Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Security & Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Build & Security Checks: ${{ needs.security-and-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployment Status: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "✅ Pipeline completed successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Pipeline completed with issues." >> $GITHUB_STEP_SUMMARY
+          fi
+
+permissions:
+  contents: read
+  security-events: write
+  id-token: write
