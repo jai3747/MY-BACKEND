@@ -1,8 +1,83 @@
-# Global configurations
+# # Global configurations
+# global:
+#   environment: production
+
+# # MongoDB configurations
+# mongodb:
+#   image:
+#     repository: mongo
+#     tag: "6.0.12"
+#   resources:
+#     requests:
+#       memory: "256Mi"
+#       cpu: "200m"
+#     limits:
+#       memory: "512Mi"
+#       cpu: "500m"
+#   storage:
+#     size: "10Gi"
+#     className: "standard-rwo"
+#   credentials:
+#     secretName: "mongodb-secret"
+
+# # Backend configurations
+# backend:
+#   image:
+#     repository: "${DOCKER_USERNAME}/my-backend-app"
+#     tag: "${GITHUB_SHA}"
+#   replicas: 2
+#   resources:
+#     requests:
+#       memory: "128Mi"
+#       cpu: "100m"
+#     limits:
+#       memory: "256Mi"
+#       cpu: "200m"
+#   port: 5000
+#   probes:
+#     readiness:
+#       initialDelaySeconds: 30
+#       periodSeconds: 10
+#       timeoutSeconds: 5
+#     liveness:
+#       initialDelaySeconds: 60
+#       periodSeconds: 20
+#       timeoutSeconds: 5
+
+# # Frontend configurations
+# frontend:
+#   image:
+#     repository: "${DOCKER_USERNAME}/my-frontend-app"
+#     tag: "${GITHUB_SHA}"
+#   replicas: 2
+#   resources:
+#     requests:
+#       memory: "64Mi"
+#       cpu: "100m"
+#     limits:
+#       memory: "128Mi"
+#       cpu: "200m"
+#   port: 8080
+#   probes:
+#     readiness:
+#       initialDelaySeconds: 30
+#       periodSeconds: 10
+#     liveness:
+#       initialDelaySeconds: 60
+#       periodSeconds: 20
+
+# # Service configurations
+# service:
+#   backend:
+#     type: LoadBalancer
+#     port: 5000
+#   frontend:
+#     type: LoadBalancer
+#     port: 80
+# values.yaml
 global:
   environment: production
 
-# MongoDB configurations
 mongodb:
   image:
     repository: mongo
@@ -20,7 +95,6 @@ mongodb:
   credentials:
     secretName: "mongodb-secret"
 
-# Backend configurations
 backend:
   image:
     repository: "${DOCKER_USERNAME}/my-backend-app"
@@ -44,7 +118,6 @@ backend:
       periodSeconds: 20
       timeoutSeconds: 5
 
-# Frontend configurations
 frontend:
   image:
     repository: "${DOCKER_USERNAME}/my-frontend-app"
@@ -66,7 +139,6 @@ frontend:
       initialDelaySeconds: 60
       periodSeconds: 20
 
-# Service configurations
 service:
   backend:
     type: LoadBalancer
