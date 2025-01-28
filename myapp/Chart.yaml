@@ -1,0 +1,6 @@
+# Chart.yaml
+apiVersion: v2
+name: my-app
+description: A Helm chart for deploying a full stack application with MongoDB
+version: 0.1.0
+type: application
