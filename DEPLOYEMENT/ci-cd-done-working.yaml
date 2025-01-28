@@ -1,0 +1,410 @@
+name: Security, Build & Deploy Pipeline with Enhanced Reporting
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_OPTIONS: --openssl-legacy-provider
+  NODE_VERSION: '18'
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  GKE_CLUSTER: cluster-1 
+  GKE_ZONE: asia-south1-a
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  MONGODB_VERSION: '6.0'
+  DOCKER_TAG: ${{ github.sha }}
+  K8S_PATH: MY-BACKEND/DEPLOYEMENT/K8/k8.yaml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [frontend, backend]
+        task: [snyk, semgrep, docker]
+      fail-fast: false
+    
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Component Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-${{ matrix.component }}
+          path: MY-${{ matrix.component }}
+          fetch-depth: 0
+
+      - name: Cache Docker layers
+        if: matrix.task == 'docker'
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.component }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.component }}-
+
+      - name: Setup Node.js
+        if: matrix.task != 'docker'
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: MY-${{ matrix.component }}/package-lock.json
+
+      - name: Install and Fix Dependencies
+        if: matrix.task != 'docker'
+        working-directory: MY-${{ matrix.component }}
+        run: |
+          npm ci || npm install
+          npm audit fix || true
+          npm audit fix --force || true
+          npm audit --json > ../${{ matrix.component }}-npm-audit.json || true
+
+      - name: Run Snyk Scan and Auto Fix
+        if: matrix.task == 'snyk'
+        working-directory: MY-${{ matrix.component }}
+        continue-on-error: true
+        run: |
+          npm install -g snyk
+          snyk test --json > ../${{ matrix.component }}-snyk.json || true
+          snyk wizard --dry-run || true
+          snyk monitor || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Upload Snyk Results
+        if: matrix.task == 'snyk'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-snyk-results
+          path: ${{ matrix.component }}-snyk.json
+          retention-days: 5
+
+      - name: Run Semgrep Scan
+        if: matrix.task == 'semgrep'
+        uses: semgrep/semgrep-action@v1
+        continue-on-error: true
+        with:
+          publishToken: ${{ secrets.SEMGREP_TOKEN }}
+          publishDeployment: 1
+          generateSarif: 1
+          output: ${{ matrix.component }}-semgrep.sarif
+          config: >-
+            p/default
+            p/security-audit
+            p/owasp-top-ten
+
+      - name: Upload Semgrep Results
+        if: matrix.task == 'semgrep'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-semgrep-results
+          path: ${{ matrix.component }}-semgrep.sarif
+          retention-days: 5
+
+      - name: Set up Docker Buildx
+        if: matrix.task == 'docker'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        if: matrix.task == 'docker'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker Build and Push
+        if: matrix.task == 'docker'
+        uses: docker/build-push-action@v5
+        with:
+          context: MY-${{ matrix.component }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+
+      - name: Run Trivy Scan
+        if: matrix.task == 'docker'
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+          format: 'sarif'
+          output: '${{ matrix.component }}-trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          timeout: '10m'
+          scanners: 'vuln,secret,config'
+          ignore-unfixed: true
+
+      - name: Upload Trivy Results
+        if: matrix.task == 'docker'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-trivy-results
+          path: ${{ matrix.component }}-trivy-results.sarif
+          retention-days: 5
+
+  deploy:
+    needs: security-and-build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: Checkout Backend Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-BACKEND
+          path: MY-BACKEND
+          fetch-depth: 0
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+        with:
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - name: Install kubectl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials "$GKE_CLUSTER" \
+            --zone "$GKE_ZONE" \
+            --project "$PROJECT_ID"
+
+      - name: Create MongoDB Secret
+        run: |
+          kubectl create secret generic mongodb-secret \
+            --from-literal=MONGO_URI="${{ secrets.MONGODB_URI }}" \
+            --from-literal=MONGO_USERNAME="${{ secrets.MONGO_USERNAME }}" \
+            --from-literal=MONGO_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Check and Create Storage Class
+        run: |
+          if ! kubectl get storageclass standard-rwo &> /dev/null; then
+            cat <<EOF | kubectl create -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: standard-rwo
+          provisioner: kubernetes.io/gce-pd
+          parameters:
+            type: pd-standard
+          volumeBindingMode: WaitForFirstConsumer
+          EOF
+          else
+            echo "StorageClass standard-rwo already exists"
+          fi
+
+      - name: Apply Kubernetes Configurations
+        run: |
+          envsubst '${DOCKER_USERNAME} ${GITHUB_SHA}' < ${{ env.K8S_PATH }} > k8s_processed.yaml
+          kubectl apply -f k8s_processed.yaml
+          
+          echo "Waiting for deployments..."
+          kubectl rollout status statefulset/mongodb-deployment --timeout=300s
+          kubectl rollout status deployment/backend-deployment --timeout=300s
+          kubectl rollout status deployment/frontend-deployment --timeout=300s
+          
+          echo "Deployment Status:"
+          kubectl get pods,svc,deployments,statefulsets
+
+  report:
+    needs: [security-and-build, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download Scan Results
+        uses: actions/download-artifact@v3
+        with:
+          path: scan-results
+
+      - name: Process Scan Results
+        run: |
+          echo "# 🔒 Security Scan Summary Report" >> $GITHUB_STEP_SUMMARY
+          
+          # Frontend Security Analysis
+          echo "## 🌐 Frontend Security Analysis" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 1️⃣ Snyk Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/frontend-snyk-results/frontend-snyk.json" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              "Vulnerabilities Found:
+              🔴 Critical: \(.vulnerabilities | map(select(.severity == "critical")) | length)
+              🟠 High: \(.vulnerabilities | map(select(.severity == "high")) | length)
+              🟡 Medium: \(.vulnerabilities | map(select(.severity == "medium")) | length)
+              🟢 Low: \(.vulnerabilities | map(select(.severity == "low")) | length)"
+            ' scan-results/frontend-snyk-results/frontend-snyk.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Critical & High Priority Issues:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities[] | 
+              select(.severity == "critical" or .severity == "high") | 
+              "- [\(.severity | ascii_upcase)] \(.title) in \(.packageName) \(.packageVersion)
+                  ↳ Fix: \(.fixedIn[0] // "No fix available")
+                  ↳ CVE: \(.identifiers.CVE[0] // "No CVE")"
+            ' scan-results/frontend-snyk-results/frontend-snyk.json | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 2️⃣ Semgrep Code Analysis" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/frontend-semgrep-results/frontend-semgrep.sarif" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .runs[].results | 
+              group_by(.level) | 
+              map({level: .[0].level, count: length}) | 
+              "Findings:
+              🔴 Error: \(map(select(.level == "error")) | .[0].count // 0)
+              🟠 Warning: \(map(select(.level == "warning")) | .[0].count // 0)
+              🟡 Note: \(map(select(.level == "note")) | .[0].count // 0)"
+            ' scan-results/frontend-semgrep-results/frontend-semgrep.sarif >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### High Priority Findings:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.runs[].results[] | 
+              select(.level == "error" or .level == "warning") |
+              "- [\(.level | ascii_upcase)] \(.message.text)
+                  ↳ File: \(.locations[0].physicalLocation.artifactLocation.uri)
+                  ↳ Line: \(.locations[0].physicalLocation.region.startLine)"
+            ' scan-results/frontend-semgrep-results/frontend-semgrep.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 3️⃣ Trivy Container Scan" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/frontend-trivy-results/frontend-trivy-results.sarif" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .runs[].results | 
+              group_by(.level) | 
+              map({level: .[0].level, count: length}) | 
+              "Container Vulnerabilities:
+              🔴 Critical: \(map(select(.level == "error")) | .[0].count // 0)
+              🟠 High: \(map(select(.level == "warning")) | .[0].count // 0)
+              🟡 Medium: \(map(select(.level == "note")) | .[0].count // 0)"
+            ' scan-results/frontend-trivy-results/frontend-trivy-results.sarif >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Critical Container Vulnerabilities:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.runs[].results[] | 
+              select(.level == "error" or .level == "warning") |
+              "- [\(.level | ascii_upcase)] \(.message.text)
+                  ↳ Component: \(.locations[0].physicalLocation.artifactLocation.uri // "Not specified")"
+            ' scan-results/frontend-trivy-results/frontend-trivy-results.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Backend Security Analysis
+          echo "## ⚙️ Backend Security Analysis" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 1️⃣ Snyk Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/backend-snyk-results/backend-snyk.json" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              "Vulnerabilities Found:
+              🔴 Critical: \(.vulnerabilities | map(select(.severity == "critical")) | length)
+              🟠 High: \(.vulnerabilities | map(select(.severity == "high")) | length)
+              🟡 Medium: \(.vulnerabilities | map(select(.severity == "medium")) | length)
+              🟢 Low: \(.vulnerabilities | map(select(.severity == "low")) | length)"
+            ' scan-results/backend-snyk-results/backend-snyk.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Critical & High Priority Issues:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities[] | 
+              select(.severity == "critical" or .severity == "high") | 
+              "- [\(.severity | ascii_upcase)] \(.title) in \(.packageName) \(.packageVersion)
+                  ↳ Fix: \(.fixedIn[0] // "No fix available")
+                  ↳ CVE: \(.identifiers.CVE[0] // "No CVE")"
+            ' scan-results/backend-snyk-results/backend-snyk.json | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 2️⃣ Semgrep Code Analysis" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/backend-semgrep-results/backend-semgrep.sarif" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .runs[].results | 
+              group_by(.level) | 
+              map({level: .[0].level, count: length}) | 
+              "Findings:
+              🔴 Error: \(map(select(.level == "error")) | .[0].count // 0)
+              🟠 Warning: \(map(select(.level == "warning")) | .[0].count // 0)
+              🟡 Note: \(map(select(.level == "note")) | .[0].count // 0)"
+            ' scan-results/backend-semgrep-results/backend-semgrep.sarif >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### High Priority Findings:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.runs[].results[] | 
+              select(.level == "error" or .level == "warning") |
+              "- [\(.level | ascii_upcase)] \(.message.text)
+                  ↳ File: \(.locations[0].physicalLocation.artifactLocation.uri)
+                  ↳ Line: \(.locations[0].physicalLocation.region.startLine)"
+            ' scan-results/backend-semgrep-results/backend-semgrep.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 3️⃣ Trivy Container Scan" >> $GITHUB_STEP_SUMMARY
+          if [ -f "scan-results/backend-trivy-results/backend-trivy-results.sarif" ]; then
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .runs[].results | 
+              group_by(.level) | 
+              map({level: .[0].level, count: length}) | 
+              "Container Vulnerabilities:
+              🔴 Critical: \(map(select(.level == "error")) | .[0].count // 0)
+              🟠 High: \(map(select(.level == "warning")) | .[0].count // 0)
+              🟡 Medium: \(map(select(.level == "note")) | .[0].count // 0)"
+            ' scan-results/backend-trivy-results/backend-trivy-results.sarif >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "#### Critical Container Vulnerabilities:" >> $GITHUB_STEP_SUMMARY
+            jq -r '.runs[].results[] | 
+              select(.level == "error" or .level == "warning") |
+              "- [\(.level | ascii_upcase)] \(.message.text)
+                  ↳ Component: \(.locations[0].physicalLocation.artifactLocation.uri // "Not specified")"
+            ' scan-results/backend-trivy-results/backend-trivy-results.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Summary Section
+          echo "## 📊 Overall Security Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Frontend Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- Snyk Dependencies: $([ -f "scan-results/frontend-snyk-results/frontend-snyk.json" ] && jq '.vulnerabilities | length' scan-results/frontend-snyk-results/frontend-snyk.json || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          echo "- Semgrep Findings: $([ -f "scan-results/frontend-semgrep-results/frontend-semgrep.sarif" ] && jq '.runs[].results | length' scan-results/frontend-semgrep-results/frontend-semgrep.sarif || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          echo "- Trivy Container Issues: $([ -f "scan-results/frontend-trivy-results/frontend-trivy-results.sarif" ] && jq '.runs[].results | length' scan-results/frontend-trivy-results/frontend-trivy-results.sarif || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Backend Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- Snyk Dependencies: $([ -f "scan-results/backend-snyk-results/backend-snyk.json" ] && jq '.vulnerabilities | length' scan-results/backend-snyk-results/backend-snyk.json || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          echo "- Semgrep Findings: $([ -f "scan-results/backend-semgrep-results/backend-semgrep.sarif" ] && jq '.runs[].results | length' scan-results/backend-semgrep-results/backend-semgrep.sarif || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+          echo "- Trivy Container Issues: $([ -f "scan-results/backend-trivy-results/backend-trivy-results.sarif" ] && jq '.runs[].results | length' scan-results/backend-trivy-results/backend-trivy-results.sarif || echo "N/A")" >> $GITHUB_STEP_SUMMARY
+
+
+
+          
+
+ 
+
+ 
