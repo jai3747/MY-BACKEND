@@ -1,4 +1,4 @@
-cat > service.yaml << 'EOF'
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,4 +11,3 @@ spec:
   - protocol: TCP
     port: {{ .Values.backend.port }}
     targetPort: {{ .Values.backend.port }}
-EOF
