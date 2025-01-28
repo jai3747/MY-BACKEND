@@ -1,0 +1,8 @@
+# Create Chart.yaml
+cat > Chart.yaml << 'EOF'
+apiVersion: v2
+name: my-app-chart
+description: A Helm chart for deploying the full application stack
+version: 0.1.0
+type: application
+EOF

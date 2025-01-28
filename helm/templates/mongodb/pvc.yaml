@@ -1,0 +1,13 @@
+cat > pvc.yaml << 'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-data-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.mongodb.storage.className }}
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.storage.size }}
+EOF
