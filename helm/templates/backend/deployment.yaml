@@ -1,3 +1,48 @@
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: backend-deployment
+# spec:
+#   replicas: {{ .Values.backend.replicas }}
+#   selector:
+#     matchLabels:
+#       app: backend
+#   template:
+#     metadata:
+#       labels:
+#         app: backend
+#     spec:
+#       containers:
+#       - name: backend
+#         image: {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
+#         ports:
+#         - containerPort: {{ .Values.backend.port }}
+#         env:
+#         - name: NODE_ENV
+#           value: {{ .Values.global.environment }}
+#         - name: PORT
+#           value: {{ .Values.backend.port | quote }}
+#         - name: MONGO_URI
+#           valueFrom:
+#             secretKeyRef:
+#               name: {{ .Values.mongodb.credentials.secretName }}
+#               key: MONGO_URI
+#         resources:
+#           {{- toYaml .Values.backend.resources | nindent 10 }}
+#         readinessProbe:
+#           httpGet:
+#             path: /api/health
+#             port: {{ .Values.backend.port }}
+#           initialDelaySeconds: {{ .Values.backend.probes.readiness.initialDelaySeconds }}
+#           periodSeconds: {{ .Values.backend.probes.readiness.periodSeconds }}
+#           timeoutSeconds: {{ .Values.backend.probes.readiness.timeoutSeconds }}
+#         livenessProbe:
+#           httpGet:
+#             path: /api/health
+#             port: {{ .Values.backend.port }}
+#           initialDelaySeconds: {{ .Values.backend.probes.liveness.initialDelaySeconds }}
+#           periodSeconds: {{ .Values.backend.probes.liveness.periodSeconds }}
+#           timeoutSeconds: {{ .Values.backend.probes.liveness.timeoutSeconds }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
