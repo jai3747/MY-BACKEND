@@ -1,5 +1,3 @@
-# Create backend deployment and service files
-cat > deployment.yaml << 'EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,4 +43,3 @@ spec:
           initialDelaySeconds: {{ .Values.backend.probes.liveness.initialDelaySeconds }}
           periodSeconds: {{ .Values.backend.probes.liveness.periodSeconds }}
           timeoutSeconds: {{ .Values.backend.probes.liveness.timeoutSeconds }}
-EOF
