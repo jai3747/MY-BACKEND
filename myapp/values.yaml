@@ -1,1 +1,17 @@
+# Add this to your existing values.yaml
+mongodb:
+  auth:
+    username: "${MONGO_USERNAME}"
+    password: "${MONGO_PASSWORD}"
+    database: "myapp"
 
+docker:
+  username: "${DOCKERHUB_USERNAME}"
+  token: "${DOCKERHUB_TOKEN}"
+
+gcp:
+  projectId: "${GCP_PROJECT_ID}"
+  serviceAccountKey: "${GCP_SA_KEY}"
+
+github:
+  pat: "${GH_PAT}"
