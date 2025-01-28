@@ -1,12 +1,60 @@
 
-cat > statefulset.yaml << 'EOF'
+# cat > statefulset.yaml << 'EOF'
+# apiVersion: apps/v1
+# kind: StatefulSet
+# metadata:
+#   name: mongodb-deployment
+# spec:
+#   serviceName: mongodb-service
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: mongodb
+#   template:
+#     metadata:
+#       labels:
+#         app: mongodb
+#     spec:
+#       securityContext:
+#         fsGroup: 999
+#       containers:
+#       - name: mongodb
+#         image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+#         command:
+#         - "mongod"
+#         - "--bind_ip_all"
+#         - "--auth"
+#         ports:
+#         - containerPort: 27017
+#         volumeMounts:
+#         - name: mongodb-data
+#           mountPath: /data/db
+#         resources:
+#           {{- toYaml .Values.mongodb.resources | nindent 10 }}
+#         env:
+#         - name: MONGO_INITDB_ROOT_USERNAME
+#           valueFrom:
+#             secretKeyRef:
+#               name: {{ .Values.mongodb.credentials.secretName }}
+#               key: MONGO_USERNAME
+#         - name: MONGO_INITDB_ROOT_PASSWORD
+#           valueFrom:
+#             secretKeyRef:
+#               name: {{ .Values.mongodb.credentials.secretName }}
+#               key: MONGO_PASSWORD
+#       volumes:
+#       - name: mongodb-data
+#         persistentVolumeClaim:
+#           claimName: mongodb-data-claim
+# EOF
+# templates/mongodb/statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mongodb-deployment
 spec:
   serviceName: mongodb-service
-  replicas: 1
+  replicas: {{ .Values.mongodb.replicas | default 1 }}
   selector:
     matchLabels:
       app: mongodb
@@ -19,7 +67,7 @@ spec:
         fsGroup: 999
       containers:
       - name: mongodb
-        image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
         command:
         - "mongod"
         - "--bind_ip_all"
@@ -46,4 +94,3 @@ spec:
       - name: mongodb-data
         persistentVolumeClaim:
           claimName: mongodb-data-claim
-EOF
