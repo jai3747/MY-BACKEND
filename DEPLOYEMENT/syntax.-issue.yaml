@@ -1,0 +1,629 @@
+name: Security, Build & Deploy Pipeline with Enhanced Reporting
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_OPTIONS: --openssl-legacy-provider
+  NODE_VERSION: '18'
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  GKE_CLUSTER: cluster-1 
+  GKE_ZONE: asia-south1-a
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  MONGODB_VERSION: '6.0'
+  DOCKER_TAG: ${{ github.sha }}
+  K8S_PATH: MY-BACKEND/DEPLOYEMENT/K8/k8.yaml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [frontend, backend]
+        task: [snyk, semgrep, docker]
+      fail-fast: false
+    
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Component Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-${{ matrix.component }}
+          path: MY-${{ matrix.component }}
+          fetch-depth: 0
+
+      - name: Cache Docker layers
+        if: matrix.task == 'docker'
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.component }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.component }}-
+
+      - name: Setup Node.js
+        if: matrix.task != 'docker'
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: MY-${{ matrix.component }}/package-lock.json
+
+      - name: Install and Fix Dependencies
+        if: matrix.task != 'docker'
+        working-directory: MY-${{ matrix.component }}
+        run: |
+          npm ci || npm install
+          npm audit fix || true
+          npm audit fix --force || true
+          npm audit --json > ../${{ matrix.component }}-npm-audit.json || true
+
+      - name: Run Snyk Scan and Auto Fix
+        if: matrix.task == 'snyk'
+        working-directory: MY-${{ matrix.component }}
+        continue-on-error: true
+        run: |
+          npm install -g snyk
+          snyk test --json > ../${{ matrix.component }}-snyk.json || true
+          snyk wizard --dry-run || true
+          snyk monitor || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Upload Snyk Results
+        if: matrix.task == 'snyk'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-snyk-results
+          path: ${{ matrix.component }}-snyk.json
+          retention-days: 5
+
+      - name: Run Semgrep Scan
+        if: matrix.task == 'semgrep'
+        uses: semgrep/semgrep-action@v1
+        continue-on-error: true
+        with:
+          publishToken: ${{ secrets.SEMGREP_TOKEN }}
+          publishDeployment: 1
+          generateSarif: 1
+          output: ${{ matrix.component }}-semgrep.sarif
+          config: >-
+            p/default
+            p/security-audit
+            p/owasp-top-ten
+
+      - name: Upload Semgrep Results
+        if: matrix.task == 'semgrep'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-semgrep-results
+          path: ${{ matrix.component }}-semgrep.sarif
+          retention-days: 5
+
+      - name: Set up Docker Buildx
+        if: matrix.task == 'docker'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        if: matrix.task == 'docker'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker Build and Push
+        if: matrix.task == 'docker'
+        uses: docker/build-push-action@v5
+        with:
+          context: MY-${{ matrix.component }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+
+      - name: Run Trivy Scan
+        if: matrix.task == 'docker'
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/my-${{ matrix.component }}-app:${{ env.DOCKER_TAG }}
+          format: 'sarif'
+          output: '${{ matrix.component }}-trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          timeout: '10m'
+          scanners: 'vuln,secret,config'
+          ignore-unfixed: true
+
+      - name: Upload Trivy Results
+        if: matrix.task == 'docker'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.component }}-trivy-results
+          path: ${{ matrix.component }}-trivy-results.sarif
+          retention-days: 5
+
+  deploy:
+    needs: security-and-build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Main Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: Checkout Backend Repository
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: jai3747/MY-BACKEND
+          path: MY-BACKEND
+          fetch-depth: 0
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+        with:
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - name: Install kubectl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials "$GKE_CLUSTER" \
+            --zone "$GKE_ZONE" \
+            --project "$PROJECT_ID"
+
+      - name: Create MongoDB Secret
+        run: |
+          kubectl create secret generic mongodb-secret \
+            --from-literal=MONGO_URI="${{ secrets.MONGODB_URI }}" \
+            --from-literal=MONGO_USERNAME="${{ secrets.MONGO_USERNAME }}" \
+            --from-literal=MONGO_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Check and Create Storage Class
+        run: |
+          if ! kubectl get storageclass standard-rwo &> /dev/null; then
+            cat <<EOF | kubectl create -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: standard-rwo
+          provisioner: kubernetes.io/gce-pd
+          parameters:
+            type: pd-standard
+          volumeBindingMode: WaitForFirstConsumer
+          EOF
+          else
+            echo "StorageClass standard-rwo already exists"
+          fi
+
+      - name: Apply Kubernetes Configurations
+        run: |
+          envsubst '${DOCKER_USERNAME} ${GITHUB_SHA}' < ${{ env.K8S_PATH }} > k8s_processed.yaml
+          kubectl apply -f k8s_processed.yaml
+          
+          echo "Waiting for deployments..."
+          kubectl rollout status statefulset/mongodb-deployment --timeout=300s
+          kubectl rollout status deployment/backend-deployment --timeout=300s
+          kubectl rollout status deployment/frontend-deployment --timeout=300s
+          
+          echo "Deployment Status:"
+          kubectl get pods,svc,deployments,statefulsets
+generate-report:
+    needs: security-and-build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download All Scan Results
+        uses: actions/download-artifact@v3
+        with:
+          path: scan-results
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install Python Dependencies
+        run: |
+          pip install jinja2 markdown
+
+      - name: Process Scan Results
+        run: |
+          cat > process_results.py << 'EOF'
+          import json
+          import os
+          from datetime import datetime
+          from jinja2 import Template
+          
+          def process_snyk(file_path):
+              try:
+                  with open(file_path) as f:
+                      data = json.load(f)
+                  vulnerabilities = []
+                  for issue in data.get('vulnerabilities', []):
+                      vulnerabilities.append({
+                          'title': issue.get('title'),
+                          'severity': issue.get('severity'),
+                          'package': issue.get('package'),
+                          'version': issue.get('version'),
+                          'fixedIn': issue.get('fixedIn'),
+                      })
+                  return vulnerabilities
+              except:
+                  return []
+          
+          def process_semgrep(file_path):
+              try:
+                  with open(file_path) as f:
+                      data = json.load(f)
+                  findings = []
+                  for run in data.get('runs', []):
+                      for result in run.get('results', []):
+                          findings.append({
+                              'rule_id': result.get('ruleId'),
+                              'message': result.get('message', {}).get('text'),
+                              'severity': result.get('level'),
+                              'location': result.get('locations', [{}])[0].get('physicalLocation', {}).get('artifactLocation', {}).get('uri'),
+                          })
+                  return findings
+              except:
+                  return []
+          
+          def process_trivy(file_path):
+              try:
+                  with open(file_path) as f:
+                      data = json.load(f)
+                  vulnerabilities = []
+                  for run in data.get('runs', []):
+                      for result in run.get('results', []):
+                          for vuln in result.get('vulnerabilities', []):
+                              vulnerabilities.append({
+                                  'id': vuln.get('id'),
+                                  'severity': vuln.get('severity'),
+                                  'description': vuln.get('description'),
+                                  'package': vuln.get('package', {}).get('name'),
+                                  'version': vuln.get('package', {}).get('version'),
+                              })
+                  return vulnerabilities
+              except:
+                  return []
+          
+          html_template = """
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>🛡️ Security Scan Report</title>
+              <style>
+                  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+                  
+                  body { 
+                      font-family: 'Inter', sans-serif;
+                      margin: 40px;
+                      background-color: #f8fafc;
+                      color: #334155;
+                  }
+                  
+                  .container {
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      background: white;
+                      padding: 2rem;
+                      border-radius: 12px;
+                      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                  }
+                  
+                  .header {
+                      text-align: center;
+                      margin-bottom: 3rem;
+                      padding-bottom: 2rem;
+                      border-bottom: 2px solid #e2e8f0;
+                  }
+                  
+                  .component {
+                      margin-bottom: 40px;
+                      background: white;
+                      padding: 2rem;
+                      border-radius: 8px;
+                      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                  }
+                  
+                  .tool-section {
+                      margin-bottom: 30px;
+                      padding: 1.5rem;
+                      background: #f8fafc;
+                      border-radius: 8px;
+                  }
+                  
+                  h1 {
+                      color: #1e293b;
+                      font-size: 2.5rem;
+                      margin-bottom: 0.5rem;
+                  }
+                  
+                  h2 {
+                      color: #334155;
+                      font-size: 2rem;
+                      display: flex;
+                      align-items: center;
+                      gap: 0.5rem;
+                  }
+                  
+                  h3 {
+                      color: #475569;
+                      font-size: 1.5rem;
+                      display: flex;
+                      align-items: center;
+                      gap: 0.5rem;
+                  }
+                  
+                  table {
+                      border-collapse: collapse;
+                      width: 100%;
+                      margin-bottom: 20px;
+                      background: white;
+                      border-radius: 8px;
+                      overflow: hidden;
+                  }
+                  
+                  th, td {
+                      border: 1px solid #e2e8f0;
+                      padding: 12px;
+                      text-align: left;
+                  }
+                  
+                  th {
+                      background-color: #f1f5f9;
+                      font-weight: 600;
+                  }
+                  
+                  .severity-CRITICAL {
+                      background-color: #fef2f2;
+                      border-left: 4px solid #dc2626;
+                  }
+                  
+                  .severity-HIGH {
+                      background-color: #fff7ed;
+                      border-left: 4px solid #ea580c;
+                  }
+                  
+                  .severity-MEDIUM {
+                      background-color: #fefce8;
+                      border-left: 4px solid #ca8a04;
+                  }
+                  
+                  .severity-LOW {
+                      background-color: #f0fdf4;
+                      border-left: 4px solid #16a34a;
+                  }
+                  
+                  .summary-box {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                      gap: 1rem;
+                      margin-bottom: 1.5rem;
+                  }
+                  
+                  .metric-card {
+                      background: white;
+                      padding: 1rem;
+                      border-radius: 8px;
+                      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                      text-align: center;
+                  }
+                  
+                  .metric-title {
+                      font-size: 0.875rem;
+                      color: #64748b;
+                      margin-bottom: 0.5rem;
+                  }
+                  
+                  .metric-value {
+                      font-size: 1.5rem;
+                      font-weight: 600;
+                      color: #334155;
+                  }
+                  
+                  .timestamp {
+                      text-align: center;
+                      color: #64748b;
+                      font-size: 0.875rem;
+                      margin-top: 1rem;
+                  }
+                  
+                  .severity-badge {
+                      display: inline-block;
+                      padding: 0.25rem 0.75rem;
+                      border-radius: 9999px;
+                      font-size: 0.75rem;
+                      font-weight: 600;
+                  }
+                  
+                  .severity-badge.CRITICAL { background-color: #fecaca; color: #991b1b; }
+                  .severity-badge.HIGH { background-color: #fed7aa; color: #9a3412; }
+                  .severity-badge.MEDIUM { background-color: #fef08a; color: #854d0e; }
+                  .severity-badge.LOW { background-color: #bbf7d0; color: #166534; }
+                  
+                  .no-issues {
+                      text-align: center;
+                      padding: 2rem;
+                      color: #64748b;
+                      font-style: italic;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="header">
+                      <h1>🛡️ Security Scan Report</h1>
+                      <div class="timestamp">📅 Generated on: {{ timestamp }}</div>
+                  </div>
+                  
+                  {% for component in ['frontend', 'backend'] %}
+                  <div class="component">
+                      <h2>{% if component == 'frontend' %}🌐{% else %}⚙️{% endif %} {{ component|title }} Component</h2>
+                      
+                      <div class="tool-section">
+                          <h3>🔍 Snyk Analysis</h3>
+                          {% set snyk_results = results[component]['snyk'] %}
+                          <div class="summary-box">
+                              <div class="metric-card">
+                                  <div class="metric-title">Total Vulnerabilities</div>
+                                  <div class="metric-value">{{ snyk_results|length }}</div>
+                              </div>
+                          </div>
+                          {% if snyk_results %}
+                          <table>
+                              <tr>
+                                  <th>📦 Package</th>
+                                  <th>⚠️ Severity</th>
+                                  <th>🏷️ Title</th>
+                                  <th>📌 Current Version</th>
+                                  <th>✅ Fixed In</th>
+                              </tr>
+                              {% for vuln in snyk_results %}
+                              <tr class="severity-{{ vuln.severity|upper }}">
+                                  <td>{{ vuln.package }}</td>
+                                  <td><span class="severity-badge {{ vuln.severity|upper }}">{{ vuln.severity }}</span></td>
+                                  <td>{{ vuln.title }}</td>
+                                  <td>{{ vuln.version }}</td>
+                                  <td>{{ vuln.fixedIn }}</td>
+                              </tr>
+                              {% endfor %}
+                          </table>
+                          {% else %}
+                          <div class="no-issues">✨ No vulnerabilities found</div>
+                          {% endif %}
+                      </div>
+                      
+                      <div class="tool-section">
+                          <h3>🔎 Semgrep Analysis</h3>
+                          {% set semgrep_results = results[component]['semgrep'] %}
+                          <div class="summary-box">
+                              <div class="metric-card">
+                                  <div class="metric-title">Total Findings</div>
+                                  <div class="metric-value">{{ semgrep_results|length }}</div>
+                              </div>
+                          </div>
+                          {% if semgrep_results %}
+                          <table>
+                              <tr>
+                                  <th>🔑 Rule ID</th>
+                                  <th>⚠️ Severity</th>
+                                  <th>💬 Message</th>
+                                  <th>📍 Location</th>
+                              </tr>
+                              {% for finding in semgrep_results %}
+                              <tr class="severity-{{ finding.severity|upper }}">
+                                  <td>{{ finding.rule_id }}</td>
+                                  <td><span class="severity-badge {{ finding.severity|upper }}">{{ finding.severity }}</span></td>
+                                  <td>{{ finding.message }}</td>
+                                  <td>{{ finding.location }}</td>
+                              </tr>
+                              {% endfor %}
+                          </table>
+                          {% else %}
+                          <div class="no-issues">✨ No findings detected</div>
+                          {% endif %}
+                      </div>
+                      
+                      <div class="tool-section">
+                          <h3>🔒 Trivy Analysis</h3>
+                          {% set trivy_results = results[component]['trivy'] %}
+                          <div class="summary-box">
+                              <div class="metric-card">
+                                  <div class="metric-title">Total Vulnerabilities</div>
+                                  <div class="metric-value">{{ trivy_results|length }}</div>
+                              </div>
+                          </div>
+                          {% if trivy_results %}
+                          <table>
+                              <tr>
+                                  <th>🔑 ID</th>
+                                  <th>⚠️ Severity</th>
+                                  <th>📦 Package</th>
+                                  <th>📌 Version</th>
+                                  <th>📝 Description</th>
+                              </tr>
+                              {% for vuln in trivy_results %}
+                              <tr class="severity-{{ vuln.severity|upper }}">
+                                  <td>{{ vuln.id }}</td>
+                                  <td><span class="severity-badge {{ vuln.severity|upper }}">{{ vuln.severity }}</span></td>
+                                  <td>{{ vuln.package }}</td>
+                                  <td>{{ vuln.version }}</td>
+                                  <td>{{ vuln.description }}</td>
+                              </tr>
+                              {% endfor %}
+                          </table>
+                          {% else %}
+                          <div class="no-issues">✨ No vulnerabilities found</div>
+                          {% endif %}
+                      </div>
+                  </div>
+                  {% endfor %}
+              </div>
+          </body>
+          </html>
+          """
+          
+          results = {
+              'frontend': {
+                  'snyk': process_snyk('scan-results/frontend-snyk-results/frontend-snyk.json'),
+                  'semgrep': process_semgrep('scan-results/frontend-semgrep-results/frontend-semgrep.sarif'),
+                  'trivy': process_trivy('scan-results/frontend-trivy-results/frontend-trivy-results.sarif')
+              },
+              'backend': {
+                  'snyk': process_snyk('scan-results/backend-snyk-results/backend-snyk.json'),
+                  'semgrep': process_semgrep('scan-results/backend-semgrep-results/backend-semgrep.sarif'),
+                  'trivy': process_trivy('scan-results/backend-trivy-results/backend-trivy-results.sarif')
+              }
+          }
+          
+          template = Template(html_template)
+          html_content = template.render(
+              results=results,
+              timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+          )
+          
+          with open('security-report.html', 'w') as f:
+              f.write(html_content)
+          EOF
+          
+          python process_results.py
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: security-report.html
+          retention-days: 5
+    
+
+ 
