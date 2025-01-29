@@ -1,19 +1,6 @@
-# # Chart.yaml
-# apiVersion: v2
-# name: my-app-chart
-# description: A Helm chart for deploying the full application stack
-# version: 0.1.0
-# type: application
 # File: Chart.yaml
 apiVersion: v2
 name: my-app
 description: A Helm chart for deploying the full application stack
 version: 0.1.0
 type: application
-maintainers:
-  - name: DevOps Team
-dependencies:
-  - name: mongodb
-    version: "*"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: mongodb.enabled
