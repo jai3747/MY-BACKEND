@@ -1,4 +1,4 @@
-# values.yaml
+# File: values.yaml
 global:
   environment: production
 
@@ -21,6 +21,7 @@ mongodb:
   replicas: 1
 
 backend:
+  name: backend-deployment
   image:
     repository: "${DOCKER_USERNAME}/my-backend-app"
     tag: "${GITHUB_SHA}"
@@ -35,15 +36,18 @@ backend:
   port: 5000
   probes:
     readiness:
+      path: /api/health
       initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
     liveness:
+      path: /api/health
       initialDelaySeconds: 60
       periodSeconds: 20
       timeoutSeconds: 5
 
 frontend:
+  name: frontend-deployment
   image:
     repository: "${DOCKER_USERNAME}/my-frontend-app"
     tag: "${GITHUB_SHA}"
@@ -58,9 +62,11 @@ frontend:
   port: 8080
   probes:
     readiness:
+      path: /
       initialDelaySeconds: 30
       periodSeconds: 10
     liveness:
+      path: /
       initialDelaySeconds: 60
       periodSeconds: 20
 
