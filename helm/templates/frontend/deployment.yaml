@@ -1,46 +1,7 @@
-# apiVersion: apps/v1
-# kind: Deployment
-# metadata:
-#   name: frontend-deployment
-# spec:
-#   replicas: {{ .Values.frontend.replicas }}
-#   selector:
-#     matchLabels:
-#       app: frontend
-#   template:
-#     metadata:
-#       labels:
-#         app: frontend
-#     spec:
-#       containers:
-#       - name: frontend
-#         image: {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
-#         ports:
-#         - containerPort: {{ .Values.frontend.port }}
-#         env:
-#         - name: REACT_APP_API_URL
-#           value: "http://34.100.172.207:5000/api"
-#         - name: REACT_APP_ENV
-#           value: {{ .Values.global.environment }}
-#         resources:
-#           {{- toYaml .Values.frontend.resources | nindent 10 }}
-#         readinessProbe:
-#           httpGet:
-#             path: /
-#             port: {{ .Values.frontend.port }}
-#           initialDelaySeconds: {{ .Values.frontend.probes.readiness.initialDelaySeconds }}
-#           periodSeconds: {{ .Values.frontend.probes.readiness.periodSeconds }}
-#         livenessProbe:
-#           httpGet:
-#             path: /
-#             port: {{ .Values.frontend.port }}
-#           initialDelaySeconds: {{ .Values.frontend.probes.liveness.initialDelaySeconds }}
-#           periodSeconds: {{ .Values.frontend.probes.liveness.periodSeconds }}
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-deployment
+  name: {{ .Values.frontend.name }}
 spec:
   replicas: {{ .Values.frontend.replicas }}
   selector:
@@ -53,25 +14,25 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
+        image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
         ports:
         - containerPort: {{ .Values.frontend.port }}
         env:
         - name: REACT_APP_API_URL
-          value: "http://backend-service:{{ .Values.backend.port }}/api"
+          value: "/api"
         - name: REACT_APP_ENV
           value: {{ .Values.global.environment }}
         resources:
           {{- toYaml .Values.frontend.resources | nindent 10 }}
         readinessProbe:
           httpGet:
-            path: /
+            path: {{ .Values.frontend.probes.readiness.path }}
             port: {{ .Values.frontend.port }}
           initialDelaySeconds: {{ .Values.frontend.probes.readiness.initialDelaySeconds }}
           periodSeconds: {{ .Values.frontend.probes.readiness.periodSeconds }}
         livenessProbe:
           httpGet:
-            path: /
+            path: {{ .Values.frontend.probes.liveness.path }}
             port: {{ .Values.frontend.port }}
           initialDelaySeconds: {{ .Values.frontend.probes.liveness.initialDelaySeconds }}
           periodSeconds: {{ .Values.frontend.probes.liveness.periodSeconds }}
