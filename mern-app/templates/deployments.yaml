@@ -59,7 +59,7 @@ spec:
         - containerPort: {{ .Values.frontend.service.targetPort }}
         env:
         - name: REACT_APP_API_URL
-          value: "http://34.100.172.207:5000/api"
+          value: "http://jc.awsaparna123.xyz"
         - name: REACT_APP_ENV
           value: "production"
         resources:
