@@ -1,99 +1,6 @@
 
-# # cat > statefulset.yaml << 'EOF'
-# # apiVersion: apps/v1
-# # kind: StatefulSet
-# # metadata:
-# #   name: mongodb-deployment
-# # spec:
-# #   serviceName: mongodb-service
-# #   replicas: 1
-# #   selector:
-# #     matchLabels:
-# #       app: mongodb
-# #   template:
-# #     metadata:
-# #       labels:
-# #         app: mongodb
-# #     spec:
-# #       securityContext:
-# #         fsGroup: 999
-# #       containers:
-# #       - name: mongodb
-# #         image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
-# #         command:
-# #         - "mongod"
-# #         - "--bind_ip_all"
-# #         - "--auth"
-# #         ports:
-# #         - containerPort: 27017
-# #         volumeMounts:
-# #         - name: mongodb-data
-# #           mountPath: /data/db
-# #         resources:
-# #           {{- toYaml .Values.mongodb.resources | nindent 10 }}
-# #         env:
-# #         - name: MONGO_INITDB_ROOT_USERNAME
-# #           valueFrom:
-# #             secretKeyRef:
-# #               name: {{ .Values.mongodb.credentials.secretName }}
-# #               key: MONGO_USERNAME
-# #         - name: MONGO_INITDB_ROOT_PASSWORD
-# #           valueFrom:
-# #             secretKeyRef:
-# #               name: {{ .Values.mongodb.credentials.secretName }}
-# #               key: MONGO_PASSWORD
-# #       volumes:
-# #       - name: mongodb-data
-# #         persistentVolumeClaim:
-# #           claimName: mongodb-data-claim
-# # EOF
-# # templates/mongodb/statefulset.yaml
-# apiVersion: apps/v1
-# kind: StatefulSet
-# metadata:
-#   name: mongodb-deployment
-# spec:
-#   serviceName: mongodb-service
-#   replicas: {{ .Values.mongodb.replicas | default 1 }}
-#   selector:
-#     matchLabels:
-#       app: mongodb
-#   template:
-#     metadata:
-#       labels:
-#         app: mongodb
-#     spec:
-#       securityContext:
-#         fsGroup: 999
-#       containers:
-#       - name: mongodb
-#         image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
-#         command:
-#         - "mongod"
-#         - "--bind_ip_all"
-#         - "--auth"
-#         ports:
-#         - containerPort: 27017
-#         volumeMounts:
-#         - name: mongodb-data
-#           mountPath: /data/db
-#         resources:
-#           {{- toYaml .Values.mongodb.resources | nindent 10 }}
-#         env:
-#         - name: MONGO_INITDB_ROOT_USERNAME
-#           valueFrom:
-#             secretKeyRef:
-#               name: {{ .Values.mongodb.credentials.secretName }}
-#               key: MONGO_USERNAME
-#         - name: MONGO_INITDB_ROOT_PASSWORD
-#           valueFrom:
-#             secretKeyRef:
-#               name: {{ .Values.mongodb.credentials.secretName }}
-#               key: MONGO_PASSWORD
-#       volumes:
-#       - name: mongodb-data
-#         persistentVolumeClaim:
-#           claimName: mongodb-data-claim
+
+# File: templates/mongodb/statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -109,9 +16,15 @@ spec:
       labels:
         app: mongodb
     spec:
+      securityContext:
+        fsGroup: 999
       containers:
       - name: mongodb
-        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+        command:
+        - "mongod"
+        - "--bind_ip_all"
+        - "--auth"
         ports:
         - containerPort: 27017
         volumeMounts:
@@ -130,12 +43,7 @@ spec:
             secretKeyRef:
               name: {{ .Values.mongodb.credentials.secretName }}
               key: MONGO_PASSWORD
-  volumeClaimTemplates:
-  - metadata:
-      name: mongodb-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: {{ .Values.mongodb.storage.className }}
-      resources:
-        requests:
-          storage: {{ .Values.mongodb.storage.size }}
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-data-claim
