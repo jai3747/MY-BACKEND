@@ -1,0 +1,59 @@
+# mongodb:
+#   image: mongo:latest
+#   persistence:
+#     size: 1Gi
+
+# backend:
+#   image: jai3747/my-backend-app:latest
+#   replicas: 1
+#   port: 5000
+#   env:
+#     NODE_ENV: production
+
+# frontend:
+#   image: jai3747/my-frontend-app:latest
+#   replicas: 1
+#   port: 8080
+#   targetPort: 8080
+#   resources:
+#     requests:
+#       memory: "64Mi"
+#       cpu: "100m"
+#     limits:
+#       memory: "128Mi"
+#       cpu: "200m"
+
+# mongodbURI: "mongodb+srv://jayachandran:jc%403747%40jai@cluster0.w45he.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
+# values.yaml
+frontend:
+  image:
+    repository: jai3747/my-frontend-app
+    tag: latest
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8080
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+backend:
+  image:
+    repository: jai3747/my-backend-app
+    tag: latest
+  service:
+    type: LoadBalancer
+    port: 5000
+    targetPort: 5000
+
+mongodb:
+  image:
+    repository: mongo
+    tag: latest
+  persistence:
+    size: 1Gi

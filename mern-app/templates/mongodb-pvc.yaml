@@ -1,0 +1,18 @@
+# templates/mongodb-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-data-claim
+  labels:
+    app.kubernetes.io/name: mern-app
+    app.kubernetes.io/instance: mern-app
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: mern-app
+  annotations:
+    meta.helm.sh/release-name: mern-app
+    meta.helm.sh/release-namespace: default
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  resources:
+    requests:
+      storage: 1Gi
