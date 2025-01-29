@@ -22,7 +22,7 @@ const allowedOrigins = [
   'http://34.100.172.207:5000',
   'http://localhost:3000',
   'http://localhost:8080',
-  'http://jc.awsaparna123.xyz'
+  'http://jc.awsaparna123.xyz',
   'http://jc1.awsaparna123.xyz'
 ];
 
