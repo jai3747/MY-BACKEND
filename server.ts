@@ -1,3 +1,283 @@
+// // import dotenv from 'dotenv';
+// // import express, { Request, Response, NextFunction } from 'express';
+// // import mongoose, { Document, Schema } from 'mongoose';
+// // import cors from 'cors';
+// // import helmet from 'helmet';
+// // import rateLimit from 'express-rate-limit';
+
+// // dotenv.config();
+
+// // // Types
+// // interface IUser {
+// //   name: string;
+// //   email: string;
+// //   createdAt?: Date;
+// //   updatedAt?: Date;
+// // }
+
+// // interface IUserDocument extends IUser, Document {}
+
+// // interface ErrorWithStatus extends Error {
+// //   status?: number;
+// //   code?: number;
+// //   errors?: { [key: string]: { message: string } };
+// // }
+
+// // // Express app initialization
+// // const app = express();
+
+// // // Security middleware
+// // app.use(helmet());
+
+// // // Rate limiting
+// // const limiter = rateLimit({
+// //   windowMs: 15 * 60 * 1000, // 15 minutes
+// //   max: 100 // limit each IP to 100 requests per windowMs
+// // });
+// // app.use('/api/', limiter);
+
+// // // Enhanced CORS Configuration
+// // const allowedOrigins = [
+// //   'http://34.93.14.21',
+// //   'http://34.93.14.21:80',
+// //   'http://34.100.172.207:5000',
+// //   'http://localhost:3000',
+// //   'http://localhost:8080',
+// //   'http://jc.awsaparna123.xyz',
+// //   'http://jc1.awsaparna123.xyz',
+// //   'http://api.awsaparna123.xyz:5000',
+// // ].filter(Boolean);
+
+// // const corsOptions: cors.CorsOptions = {
+// //   origin: (origin, callback) => {
+// //     // Allow requests with no origin (like mobile apps or curl requests)
+// //     if (!origin) {
+// //       return callback(null, true);
+// //     }
+// //     if (allowedOrigins.includes(origin)) {
+// //       callback(null, true);
+// //     } else {
+// //       // In production, we'll allow all origins but log unexpected ones
+// //       console.warn(`Unexpected origin: ${origin}`);
+// //       callback(null, true);
+// //     }
+// //   },
+// //   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+// //   allowedHeaders: ['Content-Type', 'Authorization'],
+// //   credentials: true,
+// //   optionsSuccessStatus: 204
+// // };
+
+// // app.use(cors(corsOptions));
+
+// // // Body parser with size limit
+// // app.use(express.json({ limit: '10kb' }));
+
+// // // MongoDB Connection with enhanced retry logic and proper typing
+// // const connectDB = async (): Promise<void> => {
+// //   const maxRetries = 5;
+// //   let retries = 0;
+
+// //   while (retries < maxRetries) {
+// //     try {
+// //       const mongoUri = process.env.MONGO_URI;
+// //       if (!mongoUri) {
+// //         throw new Error('MongoDB URI is not defined');
+// //       }
+
+// //       await mongoose.connect(mongoUri, {
+// //         serverSelectionTimeoutMS: 5000,
+// //         socketTimeoutMS: 45000,
+// //       });
+
+// //       console.log('MongoDB connected successfully');
+// //       return;
+// //     } catch (err) {
+// //       retries++;
+// //       console.error(`MongoDB connection attempt ${retries} failed:`, err);
+      
+// //       if (retries === maxRetries) {
+// //         console.error('Max retries reached. Exiting...');
+// //         process.exit(1);
+// //       }
+      
+// //       await new Promise(resolve => setTimeout(resolve, 5000));
+// //     }
+// //   }
+// // };
+
+// // // Enhanced User Schema with proper validation
+// // const UserSchema = new Schema<IUserDocument>({
+// //   name: {
+// //     type: String,
+// //     required: [true, 'Name is required'],
+// //     trim: true,
+// //     minlength: [2, 'Name must be at least 2 characters'],
+// //     maxlength: [50, 'Name cannot be more than 50 characters']
+// //   },
+// //   email: {
+// //     type: String,
+// //     required: [true, 'Email is required'],
+// //     unique: true,
+// //     lowercase: true,
+// //     trim: true,
+// //     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please fill a valid email address']
+// //   }
+// // }, {
+// //   timestamps: true
+// // });
+
+// // // Add index for email field
+// // UserSchema.index({ email: 1 });
+
+// // const User = mongoose.model<IUserDocument>('User', UserSchema);
+
+// // // Middleware to validate MongoDB ObjectId
+// // const validateObjectId = (req: Request, res: Response, next: NextFunction): void => {
+// //   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+// //     res.status(400).json({
+// //       success: false,
+// //       message: 'Invalid ID format'
+// //     });
+// //     return;
+// //   }
+// //   next();
+// // };
+
+// // // Routes with proper typing and validation
+// // app.get('/', (_req: Request, res: Response) => {
+// //   res.send('Backend Server is Running');
+// // });
+
+// // app.get('/api/health', (_req: Request, res: Response) => {
+// //   res.status(200).json({
+// //     status: 'healthy',
+// //     timestamp: new Date().toISOString(),
+// //     environment: process.env.NODE_ENV
+// //   });
+// // });
+
+// // app.get('/api/users', async (_req: Request, res: Response, next: NextFunction) => {
+// //   try {
+// //     const users = await User.find()
+// //       .select('-__v')
+// //       .sort({ createdAt: -1 })
+// //       .lean();
+
+// //     res.json({
+// //       success: true,
+// //       count: users.length,
+// //       data: users
+// //     });
+// //   } catch (error) {
+// //     next(error);
+// //   }
+// // });
+
+// // app.post('/api/users', async (req: Request, res: Response, next: NextFunction) => {
+// //   try {
+// //     const { name, email } = req.body;
+
+// //     // Input validation
+// //     if (!name || !email) {
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: 'Please provide both name and email'
+// //       });
+// //     }
+
+// //     // Check for existing user
+// //     const existingUser = await User.findOne({ email }).lean();
+// //     if (existingUser) {
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: 'Email already exists'
+// //       });
+// //     }
+
+// //     const user = await User.create({ name, email });
+// //     res.status(201).json({
+// //       success: true,
+// //       data: user
+// //     });
+// //   } catch (error) {
+// //     next(error);
+// //   }
+// // });
+
+// // app.delete('/api/users/:id', validateObjectId, async (req: Request, res: Response, next: NextFunction) => {
+// //   try {
+// //     const user = await User.findByIdAndDelete(req.params.id);
+// //     if (!user) {
+// //       return res.status(404).json({
+// //         success: false,
+// //         message: 'User not found'
+// //       });
+// //     }
+    
+// //     res.json({
+// //       success: true,
+// //       data: user
+// //     });
+// //   } catch (error) {
+// //     next(error);
+// //   }
+// // });
+
+// // // Enhanced error handling middleware with proper typing
+// // const errorHandler = (err: ErrorWithStatus, _req: Request, res: Response, _next: NextFunction) => {
+// //   console.error(err.stack);
+
+// //   // MongoDB duplicate key error
+// //   if (err.code === 11000) {
+// //     return res.status(400).json({
+// //       success: false,
+// //       message: 'Duplicate field value entered'
+// //     });
+// //   }
+
+// //   // MongoDB validation error
+// //   if (err.name === 'ValidationError' && err.errors) {
+// //     const messages = Object.values(err.errors).map(val => val.message);
+// //     return res.status(400).json({
+// //       success: false,
+// //       message: messages.join(', ')
+// //     });
+// //   }
+
+// //   // Generic error response
+// //   res.status(err.status || 500).json({
+// //     success: false,
+// //     message: err.message || 'Internal Server Error'
+// //   });
+// // };
+
+// // app.use(errorHandler);
+
+// // // Initialize database connection
+// // connectDB().catch(console.error);
+
+// // const PORT: number = parseInt(process.env.PORT || '5000', 10);
+// // const HOST: string = '0.0.0.0';
+
+// // // Start server
+// // const server = app.listen(PORT, HOST, () => {
+// //   console.log(`Server running on http://${HOST}:${PORT}`);
+// // });
+
+// // // Graceful shutdown
+// // process.on('SIGTERM', () => {
+// //   console.log('SIGTERM signal received. Closing HTTP server');
+// //   server.close(() => {
+// //     console.log('HTTP server closed');
+// //     mongoose.connection.close(false).then(() => {
+// //       console.log('MongoDB connection closed');
+// //       process.exit(0);
+// //     });
+// //   });
+// // });
+
+// // export default app;
 // import dotenv from 'dotenv';
 // import express, { Request, Response, NextFunction } from 'express';
 // import mongoose, { Document, Schema } from 'mongoose';
@@ -29,12 +309,24 @@
 // // Security middleware
 // app.use(helmet());
 
-// // Rate limiting
-// const limiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 100 // limit each IP to 100 requests per windowMs
+// // Health check endpoint - BEFORE rate limiting
+// app.get('/api/health', (_req: Request, res: Response) => {
+//   res.status(200).json({
+//     status: 'healthy',
+//     timestamp: new Date().toISOString(),
+//     environment: process.env.NODE_ENV
+//   });
 // });
-// app.use('/api/', limiter);
+
+// // Rate limiting for API routes (excluding health check)
+// const apiLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // limit each IP to 100 requests per windowMs
+//   message: 'Too many requests from this IP, please try again later'
+// });
+
+// // Apply rate limiting to specific routes
+// app.use(['/api/users'], apiLimiter);
 
 // // Enhanced CORS Configuration
 // const allowedOrigins = [
@@ -50,14 +342,10 @@
 
 // const corsOptions: cors.CorsOptions = {
 //   origin: (origin, callback) => {
-//     // Allow requests with no origin (like mobile apps or curl requests)
-//     if (!origin) {
-//       return callback(null, true);
-//     }
+//     if (!origin) return callback(null, true);
 //     if (allowedOrigins.includes(origin)) {
 //       callback(null, true);
 //     } else {
-//       // In production, we'll allow all origins but log unexpected ones
 //       console.warn(`Unexpected origin: ${origin}`);
 //       callback(null, true);
 //     }
@@ -69,11 +357,9 @@
 // };
 
 // app.use(cors(corsOptions));
-
-// // Body parser with size limit
 // app.use(express.json({ limit: '10kb' }));
 
-// // MongoDB Connection with enhanced retry logic and proper typing
+// // MongoDB Connection
 // const connectDB = async (): Promise<void> => {
 //   const maxRetries = 5;
 //   let retries = 0;
@@ -81,9 +367,7 @@
 //   while (retries < maxRetries) {
 //     try {
 //       const mongoUri = process.env.MONGO_URI;
-//       if (!mongoUri) {
-//         throw new Error('MongoDB URI is not defined');
-//       }
+//       if (!mongoUri) throw new Error('MongoDB URI is not defined');
 
 //       await mongoose.connect(mongoUri, {
 //         serverSelectionTimeoutMS: 5000,
@@ -106,7 +390,7 @@
 //   }
 // };
 
-// // Enhanced User Schema with proper validation
+// // User Schema
 // const UserSchema = new Schema<IUserDocument>({
 //   name: {
 //     type: String,
@@ -127,48 +411,27 @@
 //   timestamps: true
 // });
 
-// // Add index for email field
 // UserSchema.index({ email: 1 });
-
 // const User = mongoose.model<IUserDocument>('User', UserSchema);
 
-// // Middleware to validate MongoDB ObjectId
+// // Middleware
 // const validateObjectId = (req: Request, res: Response, next: NextFunction): void => {
 //   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-//     res.status(400).json({
-//       success: false,
-//       message: 'Invalid ID format'
-//     });
+//     res.status(400).json({ success: false, message: 'Invalid ID format' });
 //     return;
 //   }
 //   next();
 // };
 
-// // Routes with proper typing and validation
+// // Routes
 // app.get('/', (_req: Request, res: Response) => {
 //   res.send('Backend Server is Running');
 // });
 
-// app.get('/api/health', (_req: Request, res: Response) => {
-//   res.status(200).json({
-//     status: 'healthy',
-//     timestamp: new Date().toISOString(),
-//     environment: process.env.NODE_ENV
-//   });
-// });
-
 // app.get('/api/users', async (_req: Request, res: Response, next: NextFunction) => {
 //   try {
-//     const users = await User.find()
-//       .select('-__v')
-//       .sort({ createdAt: -1 })
-//       .lean();
-
-//     res.json({
-//       success: true,
-//       count: users.length,
-//       data: users
-//     });
+//     const users = await User.find().select('-__v').sort({ createdAt: -1 }).lean();
+//     res.json({ success: true, count: users.length, data: users });
 //   } catch (error) {
 //     next(error);
 //   }
@@ -177,8 +440,6 @@
 // app.post('/api/users', async (req: Request, res: Response, next: NextFunction) => {
 //   try {
 //     const { name, email } = req.body;
-
-//     // Input validation
 //     if (!name || !email) {
 //       return res.status(400).json({
 //         success: false,
@@ -186,7 +447,6 @@
 //       });
 //     }
 
-//     // Check for existing user
 //     const existingUser = await User.findOne({ email }).lean();
 //     if (existingUser) {
 //       return res.status(400).json({
@@ -196,10 +456,7 @@
 //     }
 
 //     const user = await User.create({ name, email });
-//     res.status(201).json({
-//       success: true,
-//       data: user
-//     });
+//     res.status(201).json({ success: true, data: user });
 //   } catch (error) {
 //     next(error);
 //   }
@@ -214,21 +471,16 @@
 //         message: 'User not found'
 //       });
 //     }
-    
-//     res.json({
-//       success: true,
-//       data: user
-//     });
+//     res.json({ success: true, data: user });
 //   } catch (error) {
 //     next(error);
 //   }
 // });
 
-// // Enhanced error handling middleware with proper typing
+// // Error handling
 // const errorHandler = (err: ErrorWithStatus, _req: Request, res: Response, _next: NextFunction) => {
 //   console.error(err.stack);
 
-//   // MongoDB duplicate key error
 //   if (err.code === 11000) {
 //     return res.status(400).json({
 //       success: false,
@@ -236,7 +488,6 @@
 //     });
 //   }
 
-//   // MongoDB validation error
 //   if (err.name === 'ValidationError' && err.errors) {
 //     const messages = Object.values(err.errors).map(val => val.message);
 //     return res.status(400).json({
@@ -245,7 +496,6 @@
 //     });
 //   }
 
-//   // Generic error response
 //   res.status(err.status || 500).json({
 //     success: false,
 //     message: err.message || 'Internal Server Error'
@@ -254,13 +504,10 @@
 
 // app.use(errorHandler);
 
-// // Initialize database connection
-// connectDB().catch(console.error);
-
+// // Server initialization
 // const PORT: number = parseInt(process.env.PORT || '5000', 10);
 // const HOST: string = '0.0.0.0';
 
-// // Start server
 // const server = app.listen(PORT, HOST, () => {
 //   console.log(`Server running on http://${HOST}:${PORT}`);
 // });
@@ -276,6 +523,8 @@
 //     });
 //   });
 // });
+
+// connectDB().catch(console.error);
 
 // export default app;
 import dotenv from 'dotenv';
@@ -303,11 +552,13 @@ interface ErrorWithStatus extends Error {
   errors?: { [key: string]: { message: string } };
 }
 
-// Express app initialization
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 
 // Health check endpoint - BEFORE rate limiting
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -318,38 +569,18 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
-// Rate limiting for API routes (excluding health check)
+// Rate limiting
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later'
 });
 
-// Apply rate limiting to specific routes
-app.use(['/api/users'], apiLimiter);
+app.use('/api/users', apiLimiter);
 
-// Enhanced CORS Configuration
-const allowedOrigins = [
-  'http://34.93.14.21',
-  'http://34.93.14.21:80',
-  'http://34.100.172.207:5000',
-  'http://localhost:3000',
-  'http://localhost:8080',
-  'http://jc.awsaparna123.xyz',
-  'http://jc1.awsaparna123.xyz',
-  'http://api.awsaparna123.xyz:5000',
-].filter(Boolean);
-
+// CORS configuration
 const corsOptions: cors.CorsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`Unexpected origin: ${origin}`);
-      callback(null, true);
-    }
-  },
+  origin: '*',  // In production, replace with specific domains
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -369,11 +600,7 @@ const connectDB = async (): Promise<void> => {
       const mongoUri = process.env.MONGO_URI;
       if (!mongoUri) throw new Error('MongoDB URI is not defined');
 
-      await mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-      });
-
+      await mongoose.connect(mongoUri);
       console.log('MongoDB connected successfully');
       return;
     } catch (err) {
@@ -411,7 +638,6 @@ const UserSchema = new Schema<IUserDocument>({
   timestamps: true
 });
 
-UserSchema.index({ email: 1 });
 const User = mongoose.model<IUserDocument>('User', UserSchema);
 
 // Middleware
@@ -430,7 +656,7 @@ app.get('/', (_req: Request, res: Response) => {
 
 app.get('/api/users', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const users = await User.find().select('-__v').sort({ createdAt: -1 }).lean();
+    const users = await User.find().select('-__v').sort({ createdAt: -1 });
     res.json({ success: true, count: users.length, data: users });
   } catch (error) {
     next(error);
@@ -440,21 +666,6 @@ app.get('/api/users', async (_req: Request, res: Response, next: NextFunction) =
 app.post('/api/users', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name, email } = req.body;
-    if (!name || !email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide both name and email'
-      });
-    }
-
-    const existingUser = await User.findOne({ email }).lean();
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already exists'
-      });
-    }
-
     const user = await User.create({ name, email });
     res.status(201).json({ success: true, data: user });
   } catch (error) {
@@ -479,7 +690,7 @@ app.delete('/api/users/:id', validateObjectId, async (req: Request, res: Respons
 
 // Error handling
 const errorHandler = (err: ErrorWithStatus, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err.stack);
+  console.error(err);
 
   if (err.code === 11000) {
     return res.status(400).json({
@@ -504,12 +715,9 @@ const errorHandler = (err: ErrorWithStatus, _req: Request, res: Response, _next:
 
 app.use(errorHandler);
 
-// Server initialization
-const PORT: number = parseInt(process.env.PORT || '5000', 10);
-const HOST: string = '0.0.0.0';
-
-const server = app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
+const PORT = process.env.PORT || 5000;
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 // Graceful shutdown
