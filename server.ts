@@ -211,7 +211,10 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:8080',
   'http://jc.awsaparna123.xyz',
-  'http://jc1.awsaparna123.xyz'
+  'http://jc1.awsaparna123.xyz',
+  'http://api.awsaparna123.xyz:5000',
+  
+  
 ].filter(Boolean);
 
 const corsOptions: cors.CorsOptions = {
