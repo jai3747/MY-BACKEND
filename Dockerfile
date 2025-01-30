@@ -188,7 +188,7 @@ COPY package*.json ./
 
 # Install only production dependencies
 RUN npm install --omit=dev
-
+RUN npm install helmet express-rate-limit
 # Copy built application
 COPY --from=builder /app/dist ./dist
 
