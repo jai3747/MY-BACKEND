@@ -273,3 +273,15 @@ mongodb:
   uri: "mongodb+srv://jayachandran:jc%403747%40jai@cluster0.w45he.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
   persistence:
     enabled: false  # Set to false since we're using MongoDB Atlas
+mongodb:
+  image:
+    repository: mongo
+    tag: "6.0"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
