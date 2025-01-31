@@ -1,6 +1,16 @@
+# # Chart.yaml
+# apiVersion: v2
+# name: mern-app
+# description: A Helm chart for MERN stack application
+# version: 0.1.0
+# type: application
 # Chart.yaml
 apiVersion: v2
 name: mern-app
-description: A Helm chart for MERN stack application
+description: A Helm chart for MERN Stack Application
 version: 0.1.0
 type: application
+dependencies:
+  - name: mongodb
+    version: "13.6.0"
+    repository: https://charts.bitnami.com/bitnami
