@@ -1,18 +1,30 @@
-# templates/mongodb-pvc.yaml
+# # templates/mongodb-pvc.yaml
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: mongodb-data-claim
+#   labels:
+#     app.kubernetes.io/name: mern-app
+#     app.kubernetes.io/instance: mern-app
+#     app.kubernetes.io/managed-by: Helm
+#     helm.sh/chart: mern-app
+#   annotations:
+#     meta.helm.sh/release-name: mern-app
+#     meta.helm.sh/release-namespace: default
+# spec:
+#   accessModes: [ "ReadWriteOnce" ]
+#   resources:
+#     requests:
+#       storage: 1Gi
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: mongodb-data-claim
+  name: {{ .Release.Name }}-mongodb-pvc
   labels:
-    app.kubernetes.io/name: mern-app
-    app.kubernetes.io/instance: mern-app
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: mern-app
-  annotations:
-    meta.helm.sh/release-name: mern-app
-    meta.helm.sh/release-namespace: default
+    {{- include "mern-app.labels" . | nindent 4 }}
 spec:
-  accessModes: [ "ReadWriteOnce" ]
+  accessModes:
+    - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ .Values.mongodb.persistence.size }}
