@@ -1,22 +1,160 @@
+# # # # templates/deployments.yaml
+# # # apiVersion: apps/v1
+# # # kind: Deployment
+# # # metadata:
+# # #   name: {{ .Release.Name }}-backend
+# # #   labels:
+# # #     {{- include "mern-app.labels" . | nindent 4 }}
+# # #     app: backend
+# # # spec:
+# # #   replicas: {{ .Values.backend.replicaCount | default 1 }}
+# # #   selector:
+# # #     matchLabels:
+# # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
+# # #       app: backend
+# # #   template:
+# # #     metadata:
+# # #       labels:
+# # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
+# # #         app: backend
+# # #     spec:
+# # #       containers:
+# # #         - name: backend
+# # #           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+# # #           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+# # #           ports:
+# # #             - name: http
+# # #               containerPort: {{ .Values.backend.service.port }}
+# # #               protocol: TCP
+# # #           env:
+# # #             - name: NODE_ENV
+# # #               value: production
+# # #             - name: PORT
+# # #               value: "{{ .Values.backend.service.port }}"
+# # #             - name: MONGO_URI
+# # #               valueFrom:
+# # #                 secretKeyRef:
+# # #                   name: {{ .Release.Name }}-mongodb-secret
+# # #                   key: MONGO_URI
+# # #             - name: FRONTEND_URL
+# # #               value: "{{ .Values.frontend.url }}"
+# # #           resources:
+# # #             {{- toYaml .Values.backend.resources | nindent 12 }}
+# # # ---
+# # # apiVersion: apps/v1
+# # # kind: Deployment
+# # # metadata:
+# # #   name: {{ .Release.Name }}-frontend
+# # #   labels:
+# # #     {{- include "mern-app.labels" . | nindent 4 }}
+# # #     app: frontend
+# # # spec:
+# # #   replicas: {{ .Values.frontend.replicaCount | default 1 }}
+# # #   selector:
+# # #     matchLabels:
+# # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
+# # #       app: frontend
+# # #   template:
+# # #     metadata:
+# # #       labels:
+# # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
+# # #         app: frontend
+# # #     spec:
+# # #       containers:
+# # #         - name: frontend
+# # #           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+# # #           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+# # #           ports:
+# # #             - name: http
+# # #               containerPort: {{ .Values.frontend.service.port }}
+# # #               protocol: TCP
+# # #           env:
+# # #             - name: REACT_APP_API_URL
+# # #               value: "{{ .Values.backend.url }}"
+# # #             - name: REACT_APP_ENV
+# # #               value: production
+# # #           resources:
+# # #             {{- toYaml .Values.frontend.resources | nindent 12 }}
+# # #           volumeMounts:
+# # #             - name: nginx-config
+# # #               mountPath: /etc/nginx/nginx.conf
+# # #               subPath: nginx.conf
+# # #             - name: nginx-temp
+# # #               mountPath: /tmp
+# # #             - name: nginx-cache
+# # #               mountPath: /var/cache/nginx
+# # #             - name: nginx-run
+# # #               mountPath: /var/run
+# # #           securityContext:
+# # #             runAsUser: 101
+# # #             runAsGroup: 101
+# # #             runAsNonRoot: true
+# # #       volumes:
+# # #         - name: nginx-config
+# # #           configMap:
+# # #             name: {{ .Release.Name }}-nginx-config
+# # #         - name: nginx-temp
+# # #           emptyDir: {}
+# # #         - name: nginx-cache
+# # #           emptyDir: {}
+# # #         - name: nginx-run
+# # #           emptyDir: {}
+# # # ---
+# # # apiVersion: apps/v1
+# # # kind: Deployment
+# # # metadata:
+# # #   name: {{ .Release.Name }}-mongodb
+# # #   labels:
+# # #     {{- include "mern-app.labels" . | nindent 4 }}
+# # #     app: mongodb
+# # # spec:
+# # #   replicas: 1
+# # #   selector:
+# # #     matchLabels:
+# # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
+# # #       app: mongodb
+# # #   template:
+# # #     metadata:
+# # #       labels:
+# # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
+# # #         app: mongodb
+# # #     spec:
+# # #       containers:
+# # #         - name: mongodb
+# # #           image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+# # #           imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+# # #           ports:
+# # #             - name: mongodb
+# # #               containerPort: 27017
+# # #               protocol: TCP
+# # #           volumeMounts:
+# # #             - name: mongodb-data
+# # #               mountPath: /data/db
+# # #           resources:
+# # #             {{- toYaml .Values.mongodb.resources | nindent 12 }}
+# # #       volumes:
+# # #         - name: mongodb-data
+# # #           persistentVolumeClaim:
+# # #             claimName: {{ .Release.Name }}-mongodb-pvc
 # # # templates/deployments.yaml
 # # apiVersion: apps/v1
 # # kind: Deployment
 # # metadata:
-# #   name: {{ .Release.Name }}-backend
+# #   name: {{ include "mern-app.fullname" . }}-backend
 # #   labels:
 # #     {{- include "mern-app.labels" . | nindent 4 }}
-# #     app: backend
+# #     component: backend
 # # spec:
-# #   replicas: {{ .Values.backend.replicaCount | default 1 }}
+# #   replicas: {{ .Values.backend.replicaCount }}
 # #   selector:
 # #     matchLabels:
 # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
-# #       app: backend
+# #       component: backend
 # #   template:
 # #     metadata:
 # #       labels:
 # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
-# #         app: backend
+# #         component: backend
 # #     spec:
 # #       containers:
 # #         - name: backend
@@ -27,38 +165,36 @@
 # #               containerPort: {{ .Values.backend.service.port }}
 # #               protocol: TCP
 # #           env:
-# #             - name: NODE_ENV
-# #               value: production
-# #             - name: PORT
-# #               value: "{{ .Values.backend.service.port }}"
 # #             - name: MONGO_URI
 # #               valueFrom:
 # #                 secretKeyRef:
-# #                   name: {{ .Release.Name }}-mongodb-secret
+# #                   name: {{ include "mern-app.fullname" . }}-mongodb-secret
 # #                   key: MONGO_URI
-# #             - name: FRONTEND_URL
-# #               value: "{{ .Values.frontend.url }}"
+# #             - name: PORT
+# #               value: {{ .Values.backend.service.port | quote }}
+# #             - name: NODE_ENV
+# #               value: production
 # #           resources:
 # #             {{- toYaml .Values.backend.resources | nindent 12 }}
 # # ---
 # # apiVersion: apps/v1
 # # kind: Deployment
 # # metadata:
-# #   name: {{ .Release.Name }}-frontend
+# #   name: {{ include "mern-app.fullname" . }}-frontend
 # #   labels:
 # #     {{- include "mern-app.labels" . | nindent 4 }}
-# #     app: frontend
+# #     component: frontend
 # # spec:
-# #   replicas: {{ .Values.frontend.replicaCount | default 1 }}
+# #   replicas: {{ .Values.frontend.replicaCount }}
 # #   selector:
 # #     matchLabels:
 # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
-# #       app: frontend
+# #       component: frontend
 # #   template:
 # #     metadata:
 # #       labels:
 # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
-# #         app: frontend
+# #         component: frontend
 # #     spec:
 # #       containers:
 # #         - name: frontend
@@ -70,54 +206,28 @@
 # #               protocol: TCP
 # #           env:
 # #             - name: REACT_APP_API_URL
-# #               value: "{{ .Values.backend.url }}"
-# #             - name: REACT_APP_ENV
-# #               value: production
+# #               value: {{ .Values.backend.url | quote }}
 # #           resources:
 # #             {{- toYaml .Values.frontend.resources | nindent 12 }}
-# #           volumeMounts:
-# #             - name: nginx-config
-# #               mountPath: /etc/nginx/nginx.conf
-# #               subPath: nginx.conf
-# #             - name: nginx-temp
-# #               mountPath: /tmp
-# #             - name: nginx-cache
-# #               mountPath: /var/cache/nginx
-# #             - name: nginx-run
-# #               mountPath: /var/run
-# #           securityContext:
-# #             runAsUser: 101
-# #             runAsGroup: 101
-# #             runAsNonRoot: true
-# #       volumes:
-# #         - name: nginx-config
-# #           configMap:
-# #             name: {{ .Release.Name }}-nginx-config
-# #         - name: nginx-temp
-# #           emptyDir: {}
-# #         - name: nginx-cache
-# #           emptyDir: {}
-# #         - name: nginx-run
-# #           emptyDir: {}
 # # ---
 # # apiVersion: apps/v1
 # # kind: Deployment
 # # metadata:
-# #   name: {{ .Release.Name }}-mongodb
+# #   name: {{ include "mern-app.fullname" . }}-mongodb
 # #   labels:
 # #     {{- include "mern-app.labels" . | nindent 4 }}
-# #     app: mongodb
+# #     component: mongodb
 # # spec:
 # #   replicas: 1
 # #   selector:
 # #     matchLabels:
 # #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
-# #       app: mongodb
+# #       component: mongodb
 # #   template:
 # #     metadata:
 # #       labels:
 # #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
-# #         app: mongodb
+# #         component: mongodb
 # #     spec:
 # #       containers:
 # #         - name: mongodb
@@ -135,48 +245,7 @@
 # #       volumes:
 # #         - name: mongodb-data
 # #           persistentVolumeClaim:
-# #             claimName: {{ .Release.Name }}-mongodb-pvc
-# # templates/deployments.yaml
-# apiVersion: apps/v1
-# kind: Deployment
-# metadata:
-#   name: {{ include "mern-app.fullname" . }}-backend
-#   labels:
-#     {{- include "mern-app.labels" . | nindent 4 }}
-#     component: backend
-# spec:
-#   replicas: {{ .Values.backend.replicaCount }}
-#   selector:
-#     matchLabels:
-#       {{- include "mern-app.selectorLabels" . | nindent 6 }}
-#       component: backend
-#   template:
-#     metadata:
-#       labels:
-#         {{- include "mern-app.selectorLabels" . | nindent 8 }}
-#         component: backend
-#     spec:
-#       containers:
-#         - name: backend
-#           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
-#           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
-#           ports:
-#             - name: http
-#               containerPort: {{ .Values.backend.service.port }}
-#               protocol: TCP
-#           env:
-#             - name: MONGO_URI
-#               valueFrom:
-#                 secretKeyRef:
-#                   name: {{ include "mern-app.fullname" . }}-mongodb-secret
-#                   key: MONGO_URI
-#             - name: PORT
-#               value: {{ .Values.backend.service.port | quote }}
-#             - name: NODE_ENV
-#               value: production
-#           resources:
-#             {{- toYaml .Values.backend.resources | nindent 12 }}
-# ---
+# #             claimName: {{ include "mern-app.fullname" . }}-mongodb-pvc
 # apiVersion: apps/v1
 # kind: Deployment
 # metadata:
@@ -213,39 +282,43 @@
 # apiVersion: apps/v1
 # kind: Deployment
 # metadata:
-#   name: {{ include "mern-app.fullname" . }}-mongodb
+#   name: {{ include "mern-app.fullname" . }}-backend
 #   labels:
 #     {{- include "mern-app.labels" . | nindent 4 }}
-#     component: mongodb
+#     component: backend
 # spec:
-#   replicas: 1
+#   replicas: {{ .Values.backend.replicaCount }}
 #   selector:
 #     matchLabels:
 #       {{- include "mern-app.selectorLabels" . | nindent 6 }}
-#       component: mongodb
+#       component: backend
 #   template:
 #     metadata:
 #       labels:
 #         {{- include "mern-app.selectorLabels" . | nindent 8 }}
-#         component: mongodb
+#         component: backend
 #     spec:
 #       containers:
-#         - name: mongodb
-#           image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
-#           imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+#         - name: backend
+#           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+#           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
 #           ports:
-#             - name: mongodb
-#               containerPort: 27017
+#             - name: http
+#               containerPort: {{ .Values.backend.service.port }}
 #               protocol: TCP
-#           volumeMounts:
-#             - name: mongodb-data
-#               mountPath: /data/db
+#           env:
+#             - name: MONGO_URI
+#               valueFrom:
+#                 secretKeyRef:
+#                   name: {{ include "mern-app.fullname" . }}-mongodb-secret
+#                   key: MONGO_URI
+#             - name: PORT
+#               value: {{ .Values.backend.service.port | quote }}
+#             - name: NODE_ENV
+#               value: "production"
 #           resources:
-#             {{- toYaml .Values.mongodb.resources | nindent 12 }}
-#       volumes:
-#         - name: mongodb-data
-#           persistentVolumeClaim:
-#             claimName: {{ include "mern-app.fullname" . }}-mongodb-pvc
+#             {{- toYaml .Values.backend.resources | nindent 12 }}
+# templates/deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
