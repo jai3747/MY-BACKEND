@@ -1,8 +1,41 @@
-# values.yaml
+# # values.yaml
+# frontend:
+#   image:
+#     repository: jai3747/my-frontend-app
+#     tag: latest
+#   service:
+#     type: LoadBalancer
+#     port: 80
+#     targetPort: 8080
+#   resources:
+#     limits:
+#       cpu: 200m
+#       memory: 128Mi
+#     requests:
+#       cpu: 100m
+#       memory: 64Mi
+
+# backend:
+#   image:
+#     repository: jai3747/my-backend-app
+#     tag: latest
+#   service:
+#     type: LoadBalancer
+#     port: 5000
+#     targetPort: 5000
+
+# mongodb:
+#   image:
+#     repository: mongo
+#     tag: latest
+#   persistence:
+#     size: 1Gi
 frontend:
   image:
     repository: jai3747/my-frontend-app
     tag: latest
+    pullPolicy: Always
+  replicaCount: 1
   service:
     type: LoadBalancer
     port: 80
@@ -14,19 +47,39 @@ frontend:
     requests:
       cpu: 100m
       memory: 64Mi
+  url: "http://jc1.awsaparna123.xyz:3000"
 
 backend:
   image:
     repository: jai3747/my-backend-app
     tag: latest
+    pullPolicy: Always
+  replicaCount: 1
   service:
     type: LoadBalancer
     port: 5000
     targetPort: 5000
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  url: "http://api.awsaparna123.xyz:5000"
 
 mongodb:
   image:
     repository: mongo
     tag: latest
+    pullPolicy: Always
   persistence:
     size: 1Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  uri: "mongodb+srv://jayachandran:jc%403747%40jai@cluster0.w45he.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
