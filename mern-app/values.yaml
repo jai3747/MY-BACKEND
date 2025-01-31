@@ -285,3 +285,10 @@ mongodb:
     requests:
       memory: "256Mi"
       cpu: "250m"
+# values.yaml
+mongodb:
+  enabled: true
+  uri: "mongodb+srv://jayachandran:jc%403747%40jai@cluster0.w45he.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+  persistence:
+    enabled: false
+    size: "1Gi"  # Added even though not used, to prevent the error
